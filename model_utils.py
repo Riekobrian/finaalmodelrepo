@@ -121,16 +121,26 @@ def load_model():
     
     if _current_model is None:
         try:
+            import warnings
+            warnings.filterwarnings('ignore', category=UserWarning)
+            
             # Download and load model
             model_path = download_artifact(MODEL_URL, "model.joblib")
+            print("Model downloaded, attempting to load...")
             _current_model = load(model_path)
+            print("Model loaded successfully")
             
             # Download and load preprocessor
             preprocessor_path = download_artifact(PREPROCESSOR_URL, "preprocessor.joblib")
+            print("Preprocessor downloaded, attempting to load...")
             _current_preprocessor = load(preprocessor_path)
+            print("Preprocessor loaded successfully")
             
-            print("Model and preprocessor loaded successfully")
         except Exception as e:
+            import traceback
+            print(f"Error loading model: {str(e)}")
+            print("Full traceback:")
+            print(traceback.format_exc())
             raise ValueError(f"Failed to load model: {str(e)}")
 
 def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
