@@ -98,7 +98,7 @@ def main():
         }
 
         try:
-            with st.spinner("⌛ Analyzing features and predicting price..."):
+            with st.spinner(" Analyzing features and predicting price..."):
                 predicted_price = predict_price(input_dict)
             
             st.success("Prediction Successful!")
@@ -138,15 +138,15 @@ def main():
             with col2:
                 st.write("#### Market Position")
                 if make in luxury_makes:
-                    st.write("🎯 Luxury Segment")
+                    st.write(" Luxury Segment")
                     st.write("- Premium pricing applied")
                     st.write("- High resale value retention")
                 elif make in premium_makes:
-                    st.write("🎯 Premium Segment")
+                    st.write(" Premium Segment")
                     st.write("- Above average pricing")
                     st.write("- Good value retention")
                 else:
-                    st.write("🎯 Standard Segment")
+                    st.write(" Standard Segment")
                     st.write("- Market average pricing")
                     st.write("- Normal depreciation rate")
             
