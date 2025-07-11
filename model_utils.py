@@ -28,6 +28,7 @@ def download_artifact(url: str, filename: str) -> str:
 
 class ModelFeatures:
     def __init__(self):
+        # Core model features
         self.numeric_features = [
             'annual_insurance', 'car_age', 'mileage_num', 'engine_size_cc_num',
             'horse_power_num', 'torque_num', 'seats_num'
@@ -41,10 +42,13 @@ class ModelFeatures:
             'car_age_squared', 'mileage_log', 'mileage_per_year',
             'engine_size_cc_log', 'horse_power_log', 'torque_log',
             'power_per_cc', 'torque_per_cc', 'power_to_weight',
-            'power_to_torque', 'brand_factor', 'mileage_factor',
-            'age_factor', 'total_depreciation', 'usage_factor',
-            'luxury_age_impact', 'performance_score', 'condition_score',
-            'market_segment_value'
+            'power_to_torque', 'performance_score'
+        ]
+        
+        # Post-prediction adjustment factors (kept separate from model features)
+        self.adjustment_features = [
+            'brand_factor', 'mileage_factor', 'age_factor',
+            'usage_factor', 'total_depreciation'
         ]
         
         self.known_categories = {
@@ -57,8 +61,9 @@ class ModelFeatures:
                                 'pickup_truck', 'coupe', 'bus', 'convertible']
         }
 
-    def engineer_features(self, data: pd.DataFrame) -> pd.DataFrame:
+    def engineer_features(self, data: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         df = data.copy()
+        adjustment_factors = {}
         
         # Basic numeric transformations with enhanced sensitivity
         df['car_age_squared'] = df['car_age'] ** 2
@@ -68,44 +73,49 @@ class ModelFeatures:
         df['horse_power_log'] = np.log1p(df['horse_power_num'])
         df['torque_log'] = np.log1p(df['torque_num'])
         
-        # Calculate core adjustment factors
-        df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)
-        df['age_factor'] = 0.90 ** df['car_age']
+        # Calculate adjustment factors (stored separately)
+        adjustment_factors['mileage_factor'] = 0.95 ** (df['mileage_num'].iloc[0] / 10000)
+        adjustment_factors['age_factor'] = 0.90 ** df['car_age'].iloc[0]
         
         # Market segment indicators and brand factors
         luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
         premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
         economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
         
-        # Brand value factors (single calculation)
-        df['brand_factor'] = 1.0  # Base factor
-        df.loc[df['make_name_cleaned'].isin(luxury_makes), 'brand_factor'] = 1.3  # Luxury premium
-        df.loc[df['make_name_cleaned'].isin(premium_makes), 'brand_factor'] = 1.1  # Premium boost
-        df.loc[df['make_name_cleaned'].isin(economy_makes), 'brand_factor'] = 0.9  # Economy adjustment
+        # Calculate brand factor (as adjustment)
+        make = df['make_name_cleaned'].iloc[0].lower()
+        if make in luxury_makes:
+            adjustment_factors['brand_factor'] = 1.3
+        elif make in premium_makes:
+            adjustment_factors['brand_factor'] = 1.1
+        else:
+            adjustment_factors['brand_factor'] = 0.9
         
-        # Enhanced performance metrics with better ratios
+        # Enhanced performance metrics (model features)
         df['power_per_cc'] = df['horse_power_num'] / (df['engine_size_cc_num'] + 1e-6)
         df['torque_per_cc'] = df['torque_num'] / (df['engine_size_cc_num'] + 1e-6)
         df['power_to_weight'] = df['horse_power_num'] / (df['engine_size_cc_num'] / 500)
         df['power_to_torque'] = df['horse_power_num'] / (df['torque_num'] + 1e-6)
         
-        # Enhanced depreciation calculations
-        df['total_depreciation'] = df['age_factor'] * df['mileage_factor'] * df['brand_factor']
+        # Calculate usage factor (as adjustment)
+        if df['usage_type_clean'].iloc[0] == 'Foreign Used':
+            adjustment_factors['usage_factor'] = 1.1
+        elif df['usage_type_clean'].iloc[0] == 'Kenyan Used':
+            adjustment_factors['usage_factor'] = 0.9
+        else:
+            adjustment_factors['usage_factor'] = 1.0
         
-        # Usage type impact with more granular effects
-        df['usage_factor'] = 1.0  # Base factor
-        df.loc[df['usage_type_clean'] == 'Foreign Used', 'usage_factor'] = 1.1
-        df.loc[df['usage_type_clean'] == 'Kenyan Used', 'usage_factor'] = 0.9
-        
-        # Sophisticated interaction features
-        df['luxury_age_impact'] = df['brand_factor'] * df['age_factor']
+        # Performance score (model feature)
         df['performance_score'] = (df['power_to_weight'] * df['power_to_torque']) ** 0.5
-        df['condition_score'] = df['total_depreciation'] * df['usage_factor']
         
-        # Market segment interactions
-        df['market_segment_value'] = df['brand_factor'] * df['performance_score'] * df['condition_score']
+        # Calculate total depreciation (as adjustment)
+        adjustment_factors['total_depreciation'] = (
+            adjustment_factors['age_factor'] * 
+            adjustment_factors['mileage_factor'] * 
+            adjustment_factors['brand_factor']
+        )
         
-        return df
+        return df, adjustment_factors
 
     def validate_features(self, data: pd.DataFrame) -> List[str]:
         warnings = []
@@ -270,8 +280,8 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
         for warning in warnings:
             print(f"Warning: {warning}")
         
-        # Step 2: Engineer features
-        engineered_data = features.engineer_features(input_data)
+        # Step 2: Engineer features and get adjustment factors
+        engineered_data, adjustment_factors = features.engineer_features(input_data)
         
         # Step 3: Create one-hot encoded features
         encoded_data = features.create_one_hot_features(engineered_data)
@@ -297,44 +307,29 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
                 final_data = pd.concat([final_data, missing_df], axis=1)
             
             final_data = final_data[_current_model.feature_names_in_]
-        
-        # Step 7: Calculate market factors
-        make = input_data['make_name_cleaned'].iloc[0].lower()
-        mileage = input_data['mileage_num'].iloc[0]
-        age = input_data['car_age'].iloc[0]
-        
-        # Pre-calculate adjustment factors
-        final_data['mileage_factor'] = 0.95 ** (mileage / 10000)
-        final_data['age_factor'] = 0.90 ** age
-        
-        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
-        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
-        
-        # Calculate brand factor
-        if make in luxury_makes:
-            final_data['brand_factor'] = 1.15
-        elif make in premium_makes:
-            final_data['brand_factor'] = 1.10
-        else:
-            final_data['brand_factor'] = 1.05
             
-        # Step 8: Normalize numeric features
+        # Step 7: Normalize numeric features
         numeric_cols = [col for col in final_data.columns if col.startswith('num_')]
         for col in numeric_cols:
             if final_data[col].std() != 0:
                 final_data[col] = (final_data[col] - final_data[col].mean()) / final_data[col].std()
         
-        # Step 9: Make prediction
+        # Step 8: Make prediction
         prediction = _current_model.predict(final_data)
         
-        # Step 10: Apply market adjustments
+        # Step 9: Apply market adjustments
         if isinstance(prediction, np.ndarray) and prediction.size == 1:
             prediction = np.exp(prediction[0])
             
-            # Apply combined market adjustments
-            prediction *= (final_data['brand_factor'].iloc[0] * 
-                         final_data['mileage_factor'].iloc[0] * 
-                         final_data['age_factor'].iloc[0])
+            # Apply all adjustment factors
+            total_adjustment = (
+                adjustment_factors['brand_factor'] *
+                adjustment_factors['mileage_factor'] *
+                adjustment_factors['age_factor'] *
+                adjustment_factors['usage_factor']
+            )
+            
+            prediction *= total_adjustment
             
         return prediction
         
