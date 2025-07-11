@@ -40,7 +40,11 @@ class ModelFeatures:
         self.derived_features = [
             'car_age_squared', 'mileage_log', 'mileage_per_year',
             'engine_size_cc_log', 'horse_power_log', 'torque_log',
-            'power_per_cc', 'mileage_per_cc', 'is_luxury_make'
+            'power_per_cc', 'torque_per_cc', 'power_to_weight',
+            'power_to_torque', 'brand_factor', 'mileage_factor',
+            'age_factor', 'total_depreciation', 'usage_factor',
+            'luxury_age_impact', 'performance_score', 'condition_score',
+            'market_segment_value'
         ]
         
         self.known_categories = {
@@ -64,40 +68,22 @@ class ModelFeatures:
         df['horse_power_log'] = np.log1p(df['horse_power_num'])
         df['torque_log'] = np.log1p(df['torque_num'])
         
-        # Enhanced depreciation factors (from insights)
-        df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)  # More gradual mileage impact
-        df['age_factor'] = 0.90 ** df['car_age']  # Steeper age depreciation
+        # Market segment indicators and brand factors
+        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
+        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
+        economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
+        
+        # Brand value factors (single calculation)
+        df['brand_factor'] = 1.0  # Base factor
+        df.loc[df['make_name_cleaned'].isin(luxury_makes), 'brand_factor'] = 1.3  # Luxury premium
+        df.loc[df['make_name_cleaned'].isin(premium_makes), 'brand_factor'] = 1.1  # Premium boost
+        df.loc[df['make_name_cleaned'].isin(economy_makes), 'brand_factor'] = 0.9  # Economy adjustment
         
         # Enhanced performance metrics with better ratios
         df['power_per_cc'] = df['horse_power_num'] / (df['engine_size_cc_num'] + 1e-6)
         df['torque_per_cc'] = df['torque_num'] / (df['engine_size_cc_num'] + 1e-6)
         df['power_to_weight'] = df['horse_power_num'] / (df['engine_size_cc_num'] / 500)
         df['power_to_torque'] = df['horse_power_num'] / (df['torque_num'] + 1e-6)
-        
-        # Market segment indicators
-        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
-        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
-        economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
-        
-        # Brand value factors
-        df['brand_factor'] = 1.0  # Base factor
-        df.loc[df['make_name_cleaned'].isin(luxury_makes), 'brand_factor'] = 1.3  # Luxury premium
-        df.loc[df['make_name_cleaned'].isin(premium_makes), 'brand_factor'] = 1.1  # Premium boost
-        df.loc[df['make_name_cleaned'].isin(economy_makes), 'brand_factor'] = 0.9  # Economy adjustment
-        
-        # Progressive depreciation factors
-        df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)  # More gradual mileage impact
-        df['age_factor'] = 0.90 ** df['car_age']  # Steeper age depreciation
-        
-        # Enhanced brand value factors with more granular categories
-        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
-        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
-        economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
-        
-        df['brand_factor'] = 1.0  # Base factor
-        df.loc[df['make_name_cleaned'].isin(luxury_makes), 'brand_factor'] = 1.3
-        df.loc[df['make_name_cleaned'].isin(premium_makes), 'brand_factor'] = 1.1
-        df.loc[df['make_name_cleaned'].isin(economy_makes), 'brand_factor'] = 0.9
         
         # Enhanced depreciation calculations
         df['total_depreciation'] = df['age_factor'] * df['mileage_factor'] * df['brand_factor']
@@ -179,14 +165,18 @@ class ModelFeatures:
         elif torque < 30:
             errors.append("Torque below minimum allowed (30 Nm)")
         
-        # Advanced ratio validations
+        # Advanced ratio validations with enhanced thresholds
         power_per_cc = power / (engine + 1e-6)
-        if power_per_cc > 0.2:
+        if power_per_cc > 0.25:  # Adjusted for high-performance vehicles
             warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually high")
+        elif power_per_cc < 0.03:  # Added lower bound
+            warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually low")
         
         torque_per_hp = torque / (power + 1e-6)
-        if torque_per_hp > 4:
+        if torque_per_hp > 5:  # Adjusted for modern diesel engines
             warnings.append(f"Torque-to-power ratio ({torque_per_hp:.1f} Nm/hp) is unusually high")
+        elif torque_per_hp < 0.5:  # Added lower bound
+            warnings.append(f"Torque-to-power ratio ({torque_per_hp:.1f} Nm/hp) is unusually low")
         
         # Insurance validation
         insurance = data['annual_insurance'].iloc[0]
@@ -304,12 +294,37 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
             
             final_data = final_data[_current_model.feature_names_in_]
         
-        # Step 7: Make prediction
+        # Step 7: Normalize numeric features
+        numeric_cols = [col for col in final_data.columns if col.startswith('num_')]
+        for col in numeric_cols:
+            if final_data[col].std() != 0:
+                final_data[col] = (final_data[col] - final_data[col].mean()) / final_data[col].std()
+        
+        # Step 8: Make prediction
         prediction = _current_model.predict(final_data)
         
-        # Step 8: Convert log prediction if needed
+        # Step 9: Apply market adjustments
         if isinstance(prediction, np.ndarray) and prediction.size == 1:
             prediction = np.exp(prediction[0])
+            
+            # Apply market segment adjustments
+            make = input_data['make_name_cleaned'].iloc[0].lower()
+            mileage = input_data['mileage_num'].iloc[0]
+            age = input_data['car_age'].iloc[0]
+            
+            # Calculate final adjustments
+            mileage_factor = 0.95 ** (mileage / 10000)
+            age_factor = 0.90 ** age
+            
+            luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
+            premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
+            
+            if make in luxury_makes:
+                prediction *= 1.15 * mileage_factor * age_factor
+            elif make in premium_makes:
+                prediction *= 1.10 * mileage_factor * age_factor
+            else:
+                prediction *= 1.05 * mileage_factor * age_factor
             
         return prediction
         
