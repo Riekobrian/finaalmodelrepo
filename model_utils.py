@@ -107,7 +107,12 @@ class ModelFeatures:
         df['torque_log'] = np.log1p(df['torque_num'].clip(lower=0))
         
         # Enhanced performance metrics with NaN prevention
+        # Weight estimation based on engine size and vehicle type (rough approximation)
+        estimated_weight = df['engine_size_cc_num'] * 0.9  # rough estimation of vehicle weight in kg
+        df['power_to_weight'] = (df['horse_power_num'] / estimated_weight.clip(lower=1)).clip(lower=0, upper=1)
         df['power_per_cc'] = (df['horse_power_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=2)
+        df['torque_per_cc'] = (df['torque_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=10)
+        df['power_to_torque'] = (df['horse_power_num'] / df['torque_num'].clip(lower=1)).clip(lower=0, upper=5)
         df['mileage_per_cc'] = (df['mileage_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0)
         
         # Calculate adjustment factors (stored separately)
@@ -123,10 +128,13 @@ class ModelFeatures:
         make = str(df['make_name_cleaned'].iloc[0]).lower()
         if make in luxury_makes:
             adjustment_factors['brand_factor'] = 1.3
+            df['is_luxury_make'] = 1
         elif make in premium_makes:
             adjustment_factors['brand_factor'] = 1.1
+            df['is_luxury_make'] = 0
         else:
             adjustment_factors['brand_factor'] = 0.9
+            df['is_luxury_make'] = 0
         
         # Calculate usage factor (as adjustment)
         usage = str(df['usage_type_clean'].iloc[0])
