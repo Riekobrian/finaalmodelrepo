@@ -103,8 +103,25 @@ def main():
             
             st.success("Prediction Successful!")
             
-            # Display prediction with formatting
-            st.metric("Predicted Market Price", f"KES {predicted_price:,.0f}")
+            # Calculate prices
+            base_price = predicted_price
+            final_price = base_price * 1.06  # Adding 6%
+            
+            # Create two columns for price display
+            price_col1, price_col2 = st.columns(2)
+            
+            # Display base prediction
+            with price_col1:
+                st.metric("Base Market Price", f"KES {base_price:,.0f}")
+            
+            # Display final price with 6% added
+            with price_col2:
+                st.metric("Final Price (Including 6%)", f"KES {final_price:,.0f}", 
+                         delta=f"KES {(final_price - base_price):,.0f}",
+                         delta_color="normal")
+            
+            # Add explanation
+            st.info("The Final Price includes a 6% addition to cover various costs and fees.")
             
             # Compare with previous prediction if available
             if st.session_state['previous_input'] is not None:
@@ -160,12 +177,12 @@ def main():
             
             # Show a confidence range for context
             st.info(f"""
-            **Estimated Price Range:**
-            - Conservative: KES {predicted_price * 0.9:,.0f}
-            - Most Likely: KES {predicted_price:,.0f}
-            - Optimistic: KES {predicted_price * 1.1:,.0f}
+            **Estimated Final Price Range (Including 6%):**
+            - Conservative: KES {final_price * 0.9:,.0f}
+            - Most Likely: KES {final_price:,.0f}
+            - Optimistic: KES {final_price * 1.1:,.0f}
             
-            *This range is an estimate and not a guarantee.*
+            *This range is an estimate and not a guarantee. All prices include the 6% addition.*
             """)
 
         except Exception as e:
