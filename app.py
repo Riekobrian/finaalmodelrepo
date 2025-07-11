@@ -103,12 +103,52 @@ def main():
             
             st.success("Prediction Successful!")
             
-            # Calculate prices (13% markup kept internal)
+            # Calculate prices with dynamic markup based on market segment
             base_price = predicted_price
-            final_price = base_price * 1.13  # Internal 13% markup
             
-            # Display only the final price to users
-            st.metric("Market Price", f"KES {final_price:,.0f}")
+            # Apply market segment based markup
+            luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
+            premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
+            
+            if make in luxury_makes:
+                markup = 1.15  # 15% for luxury
+            elif make in premium_makes:
+                markup = 1.13  # 13% for premium
+            else:
+                markup = 1.10  # 10% for standard
+                
+            final_price = base_price * markup
+            
+            # Display comprehensive pricing analysis
+            st.subheader("Market Analysis & Pricing")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Market Price", f"KES {final_price:,.0f}")
+                
+                # Calculate and display depreciation factors
+                age_impact = 0.90 ** car_age
+                mileage_impact = 0.95 ** (mileage / 10000)
+                
+                st.write("#### Value Factors")
+                st.write(f"- Age Impact: {age_impact:.1%}")
+                st.write(f"- Mileage Impact: {mileage_impact:.1%}")
+            
+            with col2:
+                st.write("#### Market Position")
+                if make in luxury_makes:
+                    st.write("🎯 Luxury Segment")
+                    st.write("- Premium pricing applied")
+                    st.write("- High resale value retention")
+                elif make in premium_makes:
+                    st.write("🎯 Premium Segment")
+                    st.write("- Above average pricing")
+                    st.write("- Good value retention")
+                else:
+                    st.write("🎯 Standard Segment")
+                    st.write("- Market average pricing")
+                    st.write("- Normal depreciation rate")
             
             # Compare with previous prediction if available
             if st.session_state['previous_input'] is not None:
@@ -137,9 +177,15 @@ def main():
                         from feature_impact import format_impact
                         st.markdown(format_impact(impact))
             
-            # Analyze sensitivity for numeric features
+            # Enhanced feature sensitivity analysis
             st.subheader("FEATURE SENSITIVITY ANALYSIS")
-            numeric_features = ['car_age', 'mileage_num', 'engine_size_cc_num', 'horse_power_num']
+            
+            # Group features by category for better analysis
+            performance_features = ['engine_size_cc_num', 'horse_power_num', 'torque_num']
+            condition_features = ['car_age', 'mileage_num']
+            
+            st.write("#### Performance Metrics")
+            for feature in performance_features:
             
             for feature in numeric_features:
                 values, predictions = analyze_feature_sensitivity(input_dict, feature, predict_price)
@@ -162,14 +208,32 @@ def main():
             # Store current input for next comparison
             st.session_state['previous_input'] = input_dict
             
-            # Show a confidence range for context
-            st.info(f"""
-            **Estimated Price Range:**
-            - Conservative: KES {final_price * 0.9:,.0f}
-            - Most Likely: KES {final_price:,.0f}
-            - Optimistic: KES {final_price * 1.1:,.0f}
+            # Enhanced market context and confidence range
+            st.subheader("Market Context & Price Range")
             
-            *This range is an estimate and not a guarantee.*
+            # Calculate confidence range based on market segment
+            if make in luxury_makes:
+                confidence_range = 0.12  # Wider range for luxury vehicles
+            elif make in premium_makes:
+                confidence_range = 0.10  # Medium range for premium vehicles
+            else:
+                confidence_range = 0.08  # Tighter range for standard vehicles
+            
+            lower_bound = final_price * (1 - confidence_range)
+            upper_bound = final_price * (1 + confidence_range)
+            
+            st.info(f"""
+            **Recommended Price Range:**
+            - Conservative: KES {lower_bound:,.0f}
+            - Most Likely: KES {final_price:,.0f}
+            - Optimistic: KES {upper_bound:,.0f}
+            
+            **Market Context:**
+            - Segment: {make.title()} ({make in luxury_makes and "Luxury" or make in premium_makes and "Premium" or "Standard"})
+            - Age Factor: {age_impact:.1%} residual value
+            - Mileage Factor: {mileage_impact:.1%} condition impact
+            
+            *This range considers market segment, condition, and current trends.*
             """)
 
         except Exception as e:

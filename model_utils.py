@@ -64,13 +64,26 @@ class ModelFeatures:
         df['horse_power_log'] = np.log1p(df['horse_power_num'])
         df['torque_log'] = np.log1p(df['torque_num'])
         
-        # Enhanced performance metrics
+        # Enhanced depreciation factors (from insights)
+        df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)  # More gradual mileage impact
+        df['age_factor'] = 0.90 ** df['car_age']  # Steeper age depreciation
+        
+        # Enhanced performance metrics with better ratios
         df['power_per_cc'] = df['horse_power_num'] / (df['engine_size_cc_num'] + 1e-6)
         df['torque_per_cc'] = df['torque_num'] / (df['engine_size_cc_num'] + 1e-6)
+        df['power_to_weight'] = df['horse_power_num'] / (df['engine_size_cc_num'] / 500)
+        df['power_to_torque'] = df['horse_power_num'] / (df['torque_num'] + 1e-6)
         
-        # Advanced performance ratios
-        df['power_to_weight'] = df['horse_power_num'] / (df['engine_size_cc_num'] / 500)  # Better weight approximation
-        df['power_to_torque'] = df['horse_power_num'] / (df['torque_num'] + 1e-6)  # Power-to-torque ratio
+        # Market segment indicators
+        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
+        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
+        economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
+        
+        # Brand value factors
+        df['brand_factor'] = 1.0  # Base factor
+        df.loc[df['make_name_cleaned'].isin(luxury_makes), 'brand_factor'] = 1.3  # Luxury premium
+        df.loc[df['make_name_cleaned'].isin(premium_makes), 'brand_factor'] = 1.1  # Premium boost
+        df.loc[df['make_name_cleaned'].isin(economy_makes), 'brand_factor'] = 0.9  # Economy adjustment
         
         # Progressive depreciation factors
         df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)  # More gradual mileage impact
