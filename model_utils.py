@@ -1,10 +1,13 @@
 import os
 import glob
-from joblib import load
+import joblib
 import pandas as pd
 import numpy as np
 import requests
 from typing import Dict, List, Union
+
+# Initialize global model variable
+_current_model = None
 
 # Dropbox URLs for model artifacts
 MODEL_URL = "https://www.dropbox.com/scl/fi/6f1y7jfycbiry4zk4mdtc/20250521_165326_StackingRegressor_Final.joblib?rlkey=ptba91lcfxmn7dmjlj0qcqs0a&dl=1"
@@ -25,6 +28,31 @@ def download_artifact(url: str, filename: str) -> str:
                 f.write(chunk)
         print(f"{filename} downloaded successfully")
     return file_path
+
+def load_model(model_path: str = None) -> None:
+    """Load the model from the specified path or use the latest model"""
+    global _current_model
+    
+    if model_path is None:
+        # Look in models directory for the latest model
+        models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models')
+        model_dirs = [d for d in os.listdir(models_dir) if d.startswith('model_')]
+        
+        if not model_dirs:
+            raise ValueError("No model found in models directory")
+            
+        # Get the latest model directory
+        latest_model_dir = sorted(model_dirs)[-1]
+        model_path = os.path.join(models_dir, latest_model_dir, 'model.joblib')
+    
+    if not os.path.exists(model_path):
+        raise ValueError(f"Model file not found at {model_path}")
+        
+    try:
+        _current_model = joblib.load(model_path)
+        print(f"Model loaded successfully from {model_path}")
+    except Exception as e:
+        raise ValueError(f"Failed to load model: {str(e)}")
 
 class ModelFeatures:
     def __init__(self):
