@@ -41,6 +41,7 @@ def main():
         engine_size = st.number_input("Engine Size (cc)", min_value=500, max_value=8000, value=1500, step=50)
         horse_power = st.number_input("Horse Power (HP)", min_value=30, max_value=1000, value=110, step=5)
         torque = st.number_input("Torque (Nm)", min_value=30, max_value=1200, value=140, step=5)
+        acceleration = st.number_input("Acceleration (0-100 km/h)", min_value=0.0, max_value=30.0, value=12.0, step=0.1)
 
     with col3:
         st.subheader("Configuration")
@@ -77,6 +78,9 @@ def main():
         
     # --- Prediction Trigger and Display ---
     if st.button("Predict Price", type="primary", use_container_width=True):
+        # Define luxury makes for is_luxury_make calculation
+        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
+        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
         
         # Create the raw input dictionary for the prediction pipeline
         input_dict = {
@@ -87,6 +91,7 @@ def main():
             'engine_size_cc_num': float(engine_size),
             'horse_power_num': float(horse_power),
             'torque_num': float(torque),
+            'acceleration_num': float(acceleration),
             'body_type_cleaned': body_type,
             'fuel_type_cleaned': fuel_type,
             'transmission_cleaned': transmission,
@@ -94,9 +99,10 @@ def main():
             'usage_type_clean': usage_type,
             'seats_num': float(seats),
             'annual_insurance': float(insurance),
-            'condition_clean': 'used'  # Default value
+            'condition_clean': 'used',  # Default value
+            'is_luxury_make': 1 if make in luxury_makes else 0  # Explicitly set is_luxury_make
         }
-
+        
         try:
             with st.spinner(" Analyzing features and predicting price..."):
                 predicted_price = predict_price(input_dict)
@@ -107,9 +113,6 @@ def main():
             base_price = predicted_price
             
             # Apply market segment based markup
-            luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
-            premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
-            
             if make in luxury_makes:
                 markup = 1.15  # 15% for luxury
             elif make in premium_makes:

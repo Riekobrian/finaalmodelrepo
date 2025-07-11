@@ -31,7 +31,8 @@ class ModelFeatures:
         # Core model features
         self.numeric_features = [
             'annual_insurance', 'car_age', 'mileage_num', 'engine_size_cc_num',
-            'horse_power_num', 'torque_num', 'seats_num'
+            'horse_power_num', 'torque_num', 'seats_num', 'acceleration_num',
+            'is_luxury_make'
         ]
         self.categorical_features = [
             'fuel_type_cleaned', 'transmission_cleaned', 'drive_type_cleaned',
@@ -80,7 +81,9 @@ class ModelFeatures:
             'horse_power_num': 100,      # Average horsepower
             'torque_num': 150,           # Average torque
             'seats_num': 5,              # Standard seating
-            'annual_insurance': 40000    # Average insurance
+            'annual_insurance': 40000,   # Average insurance
+            'acceleration_num': 12.0,    # Average acceleration 0-100km/h
+            'is_luxury_make': 0          # Default to non-luxury
         }
         
         # Ensure numeric columns exist and have no NaN values
@@ -103,6 +106,10 @@ class ModelFeatures:
         df['horse_power_log'] = np.log1p(df['horse_power_num'].clip(lower=0))
         df['torque_log'] = np.log1p(df['torque_num'].clip(lower=0))
         
+        # Enhanced performance metrics with NaN prevention
+        df['power_per_cc'] = (df['horse_power_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=2)
+        df['mileage_per_cc'] = (df['mileage_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0)
+        
         # Calculate adjustment factors (stored separately)
         adjustment_factors['mileage_factor'] = 0.95 ** (df['mileage_num'].iloc[0] / 10000)
         adjustment_factors['age_factor'] = 0.90 ** df['car_age'].iloc[0]
@@ -120,12 +127,6 @@ class ModelFeatures:
             adjustment_factors['brand_factor'] = 1.1
         else:
             adjustment_factors['brand_factor'] = 0.9
-        
-        # Enhanced performance metrics with NaN prevention (model features)
-        df['power_per_cc'] = (df['horse_power_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=2)
-        df['torque_per_cc'] = (df['torque_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=10)
-        df['power_to_weight'] = (df['horse_power_num'] / (df['engine_size_cc_num'].clip(lower=1) / 500)).clip(lower=0, upper=100)
-        df['power_to_torque'] = (df['horse_power_num'] / df['torque_num'].clip(lower=1)).clip(lower=0, upper=5)
         
         # Calculate usage factor (as adjustment)
         usage = str(df['usage_type_clean'].iloc[0])
