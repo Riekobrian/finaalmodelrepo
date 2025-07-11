@@ -329,9 +329,15 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
     if _current_model is None:
         load_model()
         
+    # Analyze model features first
+    print("\nAnalyzing model features...")
+    feature_categories = inspect_model_features()
+    
     # Convert dictionary to DataFrame if needed
     if isinstance(input_data, dict):
-        input_data = pd.DataFrame([input_data])
+        # Map input features to expected ranges
+        mapped_data = map_input_features(input_data)
+        input_data = pd.DataFrame([mapped_data])
     
     try:
         features = ModelFeatures()
@@ -455,3 +461,93 @@ def debug_dataframe(df: pd.DataFrame, stage: str) -> None:
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     if len(numeric_cols) > 0:
         print(df[numeric_cols].describe())
+
+def inspect_model_features():
+    """Analyze and print information about the model's features"""
+    global _current_model
+    
+    if _current_model is None:
+        load_model()
+    
+    if not hasattr(_current_model, 'feature_names_in_'):
+        print("Model does not expose feature names")
+        return
+    
+    feature_names = _current_model.feature_names_in_
+    
+    # Categorize features by prefix
+    feature_categories = {
+        'num_insurance': [],
+        'num_main': [],
+        'cat': []
+    }
+    
+    for feature in feature_names:
+        if feature.startswith('num_insurance__'):
+            feature_categories['num_insurance'].append(feature)
+        elif feature.startswith('num_main__'):
+            feature_categories['num_main'].append(feature)
+        elif feature.startswith('cat__'):
+            feature_categories['cat'].append(feature)
+    
+    print("\nModel Feature Analysis:")
+    print("======================")
+    
+    print("\nNumeric Insurance Features:")
+    for f in feature_categories['num_insurance']:
+        print(f"- {f}")
+    
+    print("\nMain Numeric Features:")
+    print("Basic Features:")
+    basic = [f for f in feature_categories['num_main'] 
+             if not any(x in f for x in ['squared', 'log', 'per', 'power', 'score', 'factor'])]
+    for f in basic:
+        print(f"- {f}")
+    
+    print("\nDerived Features:")
+    derived = [f for f in feature_categories['num_main'] 
+              if any(x in f for x in ['squared', 'log', 'per', 'power', 'score', 'factor'])]
+    for f in derived:
+        print(f"- {f}")
+    
+    print("\nCategorical Features:")
+    for f in feature_categories['cat']:
+        print(f"- {f}")
+    
+    return feature_categories
+
+def map_input_features(input_dict: dict) -> dict:
+    """Map raw input features to expected model features"""
+    
+    # Standard feature ranges
+    feature_ranges = {
+        'car_age': (0, 50),
+        'mileage_num': (0, 1000000),
+        'engine_size_cc_num': (600, 8000),
+        'horse_power_num': (30, 1000),
+        'torque_num': (30, 1200),
+        'seats_num': (2, 15),
+        'annual_insurance': (10000, 500000)
+    }
+    
+    # Clip values to valid ranges
+    mapped = {}
+    for feature, (min_val, max_val) in feature_ranges.items():
+        if feature in input_dict:
+            mapped[feature] = np.clip(float(input_dict[feature]), min_val, max_val)
+    
+    # Print feature mapping debug info
+    print("\nFeature Mapping Analysis:")
+    print("========================")
+    for feature in feature_ranges.keys():
+        if feature in input_dict:
+            original = input_dict[feature]
+            mapped_value = mapped[feature]
+            if original != mapped_value:
+                print(f"{feature}: Original={original}, Mapped={mapped_value} (clipped to valid range)")
+            else:
+                print(f"{feature}: {mapped_value} (within valid range)")
+        else:
+            print(f"{feature}: Missing - will use default value")
+    
+    return mapped
