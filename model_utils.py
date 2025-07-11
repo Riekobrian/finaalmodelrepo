@@ -56,7 +56,7 @@ class ModelFeatures:
     def engineer_features(self, data: pd.DataFrame) -> pd.DataFrame:
         df = data.copy()
         
-        # Basic numeric transformations
+        # Basic numeric transformations with enhanced sensitivity
         df['car_age_squared'] = df['car_age'] ** 2
         df['mileage_log'] = np.log1p(df['mileage_num'])
         df['mileage_per_year'] = df['mileage_num'] / (df['car_age'] + 1e-6)
@@ -64,28 +64,43 @@ class ModelFeatures:
         df['horse_power_log'] = np.log1p(df['horse_power_num'])
         df['torque_log'] = np.log1p(df['torque_num'])
         
-        # Performance metrics
+        # Enhanced performance metrics
         df['power_per_cc'] = df['horse_power_num'] / (df['engine_size_cc_num'] + 1e-6)
         df['torque_per_cc'] = df['torque_num'] / (df['engine_size_cc_num'] + 1e-6)
-        df['power_to_weight'] = df['horse_power_num'] / 1000  # Approximate weight based on engine size
-        df['mileage_factor'] = np.exp(-df['mileage_num'] / 100000)  # Exponential decay with mileage
         
-        # Age-based depreciation
-        df['age_factor'] = np.exp(-df['car_age'] / 10)  # Exponential depreciation with age
+        # Advanced performance ratios
+        df['power_to_weight'] = df['horse_power_num'] / (df['engine_size_cc_num'] / 500)  # Better weight approximation
+        df['power_to_torque'] = df['horse_power_num'] / (df['torque_num'] + 1e-6)  # Power-to-torque ratio
         
-        # Brand value factors
+        # Progressive depreciation factors
+        df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)  # More gradual mileage impact
+        df['age_factor'] = 0.90 ** df['car_age']  # Steeper age depreciation
+        
+        # Enhanced brand value factors with more granular categories
         luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
         premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
-        df['is_luxury_make'] = df['make_name_cleaned'].isin(luxury_makes).astype(int)
-        df['is_premium_make'] = df['make_name_cleaned'].isin(premium_makes).astype(int)
+        economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
         
-        # Usage and condition factors
-        df['is_foreign_used'] = (df['usage_type_clean'] == 'Foreign Used').astype(int)
+        df['brand_factor'] = 1.0  # Base factor
+        df.loc[df['make_name_cleaned'].isin(luxury_makes), 'brand_factor'] = 1.3
+        df.loc[df['make_name_cleaned'].isin(premium_makes), 'brand_factor'] = 1.1
+        df.loc[df['make_name_cleaned'].isin(economy_makes), 'brand_factor'] = 0.9
         
-        # Interaction features
-        df['luxury_age_factor'] = df['is_luxury_make'] * df['age_factor']
-        df['power_age_factor'] = df['power_per_cc'] * df['age_factor']
-        df['mileage_age_factor'] = df['mileage_factor'] * df['age_factor']
+        # Enhanced depreciation calculations
+        df['total_depreciation'] = df['age_factor'] * df['mileage_factor'] * df['brand_factor']
+        
+        # Usage type impact with more granular effects
+        df['usage_factor'] = 1.0  # Base factor
+        df.loc[df['usage_type_clean'] == 'Foreign Used', 'usage_factor'] = 1.1
+        df.loc[df['usage_type_clean'] == 'Kenyan Used', 'usage_factor'] = 0.9
+        
+        # Sophisticated interaction features
+        df['luxury_age_impact'] = df['brand_factor'] * df['age_factor']
+        df['performance_score'] = (df['power_to_weight'] * df['power_to_torque']) ** 0.5
+        df['condition_score'] = df['total_depreciation'] * df['usage_factor']
+        
+        # Market segment interactions
+        df['market_segment_value'] = df['brand_factor'] * df['performance_score'] * df['condition_score']
         
         return df
 
