@@ -186,8 +186,25 @@ def main():
             
             st.write("#### Performance Metrics")
             for feature in performance_features:
+                values, predictions = analyze_feature_sensitivity(input_dict, feature, predict_price)
+                if any(p is not None for p in predictions):
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=values,
+                        y=predictions,
+                        mode='lines+markers',
+                        name=f'Price vs {feature}'
+                    ))
+                    fig.update_layout(
+                        title=f'How {feature} Affects Price',
+                        xaxis_title=feature,
+                        yaxis_title='Predicted Price (KES)',
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
             
-            for feature in numeric_features:
+            st.write("#### Condition Impact")
+            for feature in condition_features:
                 values, predictions = analyze_feature_sensitivity(input_dict, feature, predict_price)
                 if any(p is not None for p in predictions):
                     fig = go.Figure()
