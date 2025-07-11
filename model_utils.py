@@ -58,7 +58,14 @@ class ModelFeatures:
             'drive_type_cleaned': ['2wd', '2wd_front', '2wd_mid_engine', '2wd_rear', 
                                  '4wd', 'awd', 'unknown'],
             'body_type_cleaned': ['sedan', 'suv', 'hatchback', 'wagon', 'van_minivan', 
-                                'pickup_truck', 'coupe', 'bus', 'convertible']
+                                'pickup_truck', 'coupe', 'bus', 'convertible'],
+            'make_name_cleaned': [
+                'toyota', 'honda', 'mazda', 'nissan', 'suzuki', 'mitsubishi', 'subaru',  # Japanese
+                'bmw', 'mercedes', 'audi', 'volkswagen', 'porsche',  # German
+                'lexus', 'land rover', 'jaguar',  # Luxury
+                'hyundai', 'kia',  # Korean
+                'other'  # Fallback
+            ]
         }
 
     def engineer_features(self, data: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -146,6 +153,19 @@ class ModelFeatures:
         nan_columns = data.columns[data.isna().any()].tolist()
         if nan_columns:
             errors.append(f"Missing values found in columns: {', '.join(nan_columns)}")
+            
+        # Validate categorical features
+        for feature, valid_categories in self.known_categories.items():
+            if feature in data.columns:
+                value = data[feature].iloc[0]
+                if value not in valid_categories:
+                    if feature == 'make_name_cleaned':
+                        print(f"Warning: Unknown make '{value}', will be treated as 'other'")
+                        data.loc[data.index[0], feature] = 'other'
+                    else:
+                        warnings.append(f"Unknown {feature} value: {value}")
+            else:
+                errors.append(f"Missing required categorical feature: {feature}")
             
         # Ensure all required numeric columns are present and valid
         required_numeric = {
@@ -518,6 +538,7 @@ def inspect_model_features():
 
 def map_input_features(input_dict: dict) -> dict:
     """Map raw input features to expected model features"""
+    features = ModelFeatures()
     
     # Standard feature ranges
     feature_ranges = {
@@ -530,24 +551,67 @@ def map_input_features(input_dict: dict) -> dict:
         'annual_insurance': (10000, 500000)
     }
     
+    # Default values for categorical features
+    categorical_defaults = {
+        'make_name_cleaned': 'toyota',
+        'model_name_cleaned': 'other',
+        'fuel_type_cleaned': 'petrol',
+        'transmission_cleaned': 'manual',
+        'drive_type_cleaned': '2wd',
+        'body_type_cleaned': 'sedan',
+        'usage_type_clean': 'Foreign Used'
+    }
+    
     # Clip values to valid ranges
     mapped = {}
     for feature, (min_val, max_val) in feature_ranges.items():
         if feature in input_dict:
             mapped[feature] = np.clip(float(input_dict[feature]), min_val, max_val)
     
+    # Map categorical features
+    for feature, default_value in categorical_defaults.items():
+        if feature in input_dict:
+            value = str(input_dict[feature]).lower()
+            if feature in features.known_categories:
+                if value in features.known_categories[feature]:
+                    mapped[feature] = value
+                else:
+                    if feature == 'make_name_cleaned':
+                        print(f"Warning: Unknown make '{value}', using 'other'")
+                        mapped[feature] = 'other'
+                    else:
+                        print(f"Warning: Unknown {feature} value '{value}', using default '{default_value}'")
+                        mapped[feature] = default_value
+            else:
+                mapped[feature] = value
+        else:
+            mapped[feature] = default_value
+    
     # Print feature mapping debug info
     print("\nFeature Mapping Analysis:")
     print("========================")
+    print("\nNumeric Features:")
     for feature in feature_ranges.keys():
         if feature in input_dict:
             original = input_dict[feature]
             mapped_value = mapped[feature]
             if original != mapped_value:
-                print(f"{feature}: Original={original}, Mapped={mapped_value} (clipped to valid range)")
+                print(f"- {feature}: Original={original}, Mapped={mapped_value} (clipped to valid range)")
             else:
-                print(f"{feature}: {mapped_value} (within valid range)")
+                print(f"- {feature}: {mapped_value} (within valid range)")
         else:
-            print(f"{feature}: Missing - will use default value")
+            print(f"- {feature}: Missing - using default value")
+    
+    print("\nCategorical Features:")
+    for feature in categorical_defaults.keys():
+        if feature in input_dict:
+            original = input_dict[feature]
+            mapped_value = mapped[feature]
+            if original.lower() != mapped_value:
+                print(f"- {feature}: Original='{original}', Mapped='{mapped_value}' (standardized)")
+            else:
+                print(f"- {feature}: '{mapped_value}' (valid category)")
+        else:
+            print(f"- {feature}: Missing - using default '{categorical_defaults[feature]}'")
     
     return mapped
