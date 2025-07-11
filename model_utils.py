@@ -106,40 +106,87 @@ class ModelFeatures:
 
     def validate_features(self, data: pd.DataFrame) -> List[str]:
         warnings = []
+        errors = []
         
-        # Age validation
+        # Age validation with hard limits
         age = data['car_age'].iloc[0]
-        if age > 30:
+        if age > 50:
+            errors.append("Car age exceeds maximum allowed (50 years)")
+        elif age > 30:
             warnings.append("Car age is over 30 years - prediction may be less accurate")
         elif age > 20:
             warnings.append("Car is over 20 years old - consider condition carefully")
+        elif age < 0:
+            errors.append("Car age cannot be negative")
         
-        # Mileage validation
+        # Mileage validation with realistic bounds
         mileage = data['mileage_num'].iloc[0]
-        if mileage > 500000:
+        if mileage > 1000000:
+            errors.append("Mileage exceeds reasonable limit (1,000,000 km)")
+        elif mileage > 500000:
             warnings.append("Mileage is unusually high - verify accuracy")
         elif mileage > 300000:
             warnings.append("High mileage may affect price significantly")
+        elif mileage < 0:
+            errors.append("Mileage cannot be negative")
         
-        # Engine validation
+        # Engine size validation with make-specific ranges
         engine = data['engine_size_cc_num'].iloc[0]
-        if engine < 600 or engine > 8000:
-            warnings.append("Engine size is outside typical range")
+        make = data['make_name_cleaned'].iloc[0]
         
-        # Power validation
+        # Make-specific engine size validation
+        if make in ['bmw', 'mercedes', 'audi']:
+            if engine > 6000:
+                warnings.append(f"Engine size {engine}cc is unusually large for {make}")
+            elif engine < 1200:
+                warnings.append(f"Engine size {engine}cc is unusually small for {make}")
+        else:
+            if engine > 8000:
+                errors.append("Engine size exceeds maximum allowed (8,000 cc)")
+            elif engine < 600:
+                errors.append("Engine size below minimum allowed (600 cc)")
+        
+        # Power validation with make-specific ranges
         power = data['horse_power_num'].iloc[0]
-        if power > 500:
-            warnings.append("Very high horsepower - verify specifications")
+        if make in ['porsche', 'ferrari', 'lamborghini']:
+            if power > 800:
+                warnings.append(f"Very high horsepower ({power}hp) - verify specifications")
+            elif power < 300:
+                warnings.append(f"Unusually low horsepower ({power}hp) for {make}")
+        else:
+            if power > 500:
+                warnings.append(f"Very high horsepower ({power}hp) - verify specifications")
+            elif power < 30:
+                errors.append("Horsepower below minimum allowed (30 hp)")
         
         # Torque validation
         torque = data['torque_num'].iloc[0]
         if torque > 1000:
-            warnings.append("Very high torque - verify specifications")
+            warnings.append(f"Very high torque ({torque}Nm) - verify specifications")
+        elif torque < 30:
+            errors.append("Torque below minimum allowed (30 Nm)")
         
-        # Power-to-engine ratio validation
+        # Advanced ratio validations
         power_per_cc = power / (engine + 1e-6)
-        if power_per_cc > 0.2:  # More than 0.2 HP per cc is very high
-            warnings.append("Power-to-engine ratio is unusually high")
+        if power_per_cc > 0.2:
+            warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually high")
+        
+        torque_per_hp = torque / (power + 1e-6)
+        if torque_per_hp > 4:
+            warnings.append(f"Torque-to-power ratio ({torque_per_hp:.1f} Nm/hp) is unusually high")
+        
+        # Insurance validation
+        insurance = data['annual_insurance'].iloc[0]
+        if insurance > 500000:
+            warnings.append("Annual insurance cost is unusually high")
+        elif insurance < 10000:
+            warnings.append("Annual insurance cost seems unusually low")
+        
+        # Raise error if any hard limits are violated
+        if errors:
+            raise ValueError("Validation errors: " + "; ".join(errors))
+            
+        return warnings
             
         return warnings
 
