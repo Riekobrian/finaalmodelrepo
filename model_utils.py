@@ -83,20 +83,22 @@ class ModelFeatures:
             'annual_insurance': 40000    # Average insurance
         }
         
-        # Ensure numeric columns have no NaN values using sensible defaults
+        # Ensure numeric columns exist and have no NaN values
         for col, default_value in defaults.items():
-            if col in df.columns:
-                if df[col].isna().any():
-                    print(f"Warning: Found NaN in {col}, filling with {default_value}")
-                    df[col] = df[col].fillna(default_value)
-            else:
+            if col not in df.columns:
                 print(f"Warning: Missing column {col}, adding with default value {default_value}")
                 df[col] = default_value
+            elif df[col].isna().any():
+                print(f"Warning: Found NaN in {col}, filling with {default_value}")
+                df[col] = df[col].fillna(default_value)
+            
+            # Ensure values are numeric
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default_value)
         
         # Basic numeric transformations with enhanced sensitivity and NaN prevention
-        df['car_age_squared'] = df['car_age'] ** 2
+        df['car_age_squared'] = df['car_age'].clip(lower=0) ** 2
         df['mileage_log'] = np.log1p(df['mileage_num'].clip(lower=0))
-        df['mileage_per_year'] = df['mileage_num'] / (df['car_age'].clip(lower=1e-6))
+        df['mileage_per_year'] = df['mileage_num'] / df['car_age'].clip(lower=1)
         df['engine_size_cc_log'] = np.log1p(df['engine_size_cc_num'].clip(lower=0))
         df['horse_power_log'] = np.log1p(df['horse_power_num'].clip(lower=0))
         df['torque_log'] = np.log1p(df['torque_num'].clip(lower=0))
@@ -111,7 +113,7 @@ class ModelFeatures:
         economy_makes = ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
         
         # Calculate brand factor (as adjustment)
-        make = df['make_name_cleaned'].iloc[0].lower()
+        make = str(df['make_name_cleaned'].iloc[0]).lower()
         if make in luxury_makes:
             adjustment_factors['brand_factor'] = 1.3
         elif make in premium_makes:
@@ -126,15 +128,16 @@ class ModelFeatures:
         df['power_to_torque'] = (df['horse_power_num'] / df['torque_num'].clip(lower=1)).clip(lower=0, upper=5)
         
         # Calculate usage factor (as adjustment)
-        if df['usage_type_clean'].iloc[0] == 'Foreign Used':
+        usage = str(df['usage_type_clean'].iloc[0])
+        if usage == 'Foreign Used':
             adjustment_factors['usage_factor'] = 1.1
-        elif df['usage_type_clean'].iloc[0] == 'Kenyan Used':
+        elif usage == 'Kenyan Used':
             adjustment_factors['usage_factor'] = 0.9
         else:
             adjustment_factors['usage_factor'] = 1.0
         
         # Performance score (model feature)
-        df['performance_score'] = (df['power_to_weight'] * df['power_to_torque']) ** 0.5
+        df['performance_score'] = (df['power_to_weight'] * df['power_to_torque']).clip(lower=0) ** 0.5
         
         # Calculate total depreciation (as adjustment)
         adjustment_factors['total_depreciation'] = (
@@ -149,25 +152,7 @@ class ModelFeatures:
         warnings = []
         errors = []
         
-        # Check for NaN values first
-        nan_columns = data.columns[data.isna().any()].tolist()
-        if nan_columns:
-            errors.append(f"Missing values found in columns: {', '.join(nan_columns)}")
-            
-        # Validate categorical features
-        for feature, valid_categories in self.known_categories.items():
-            if feature in data.columns:
-                value = data[feature].iloc[0]
-                if value not in valid_categories:
-                    if feature == 'make_name_cleaned':
-                        print(f"Warning: Unknown make '{value}', will be treated as 'other'")
-                        data.loc[data.index[0], feature] = 'other'
-                    else:
-                        warnings.append(f"Unknown {feature} value: {value}")
-            else:
-                errors.append(f"Missing required categorical feature: {feature}")
-            
-        # Ensure all required numeric columns are present and valid
+        # Ensure all required numeric columns are present with valid values
         required_numeric = {
             'car_age': (0, 50),
             'mileage_num': (0, 1000000),
@@ -180,90 +165,73 @@ class ModelFeatures:
         for col, (min_val, max_val) in required_numeric.items():
             if col not in data.columns:
                 errors.append(f"Missing required column: {col}")
-            elif data[col].isna().any():
-                errors.append(f"Column {col} contains missing values")
-            elif (data[col] < min_val).any() or (data[col] > max_val).any():
-                errors.append(f"Column {col} contains values outside valid range ({min_val}-{max_val})")
+            else:
+                # Convert to numeric if needed
+                data[col] = pd.to_numeric(data[col], errors='coerce')
+                if data[col].isna().any():
+                    errors.append(f"Invalid numeric value in column {col}")
+                elif (data[col] < min_val).any() or (data[col] > max_val).any():
+                    warnings.append(f"Column {col} contains values outside recommended range ({min_val}-{max_val})")
         
-        # Age validation with hard limits
-        age = data['car_age'].iloc[0]
-        if age > 50:
-            errors.append("Car age exceeds maximum allowed (50 years)")
-        elif age > 30:
-            warnings.append("Car age is over 30 years - prediction may be less accurate")
-        elif age > 20:
-            warnings.append("Car is over 20 years old - consider condition carefully")
-        elif age < 0:
-            errors.append("Car age cannot be negative")
+        # Validate categorical features
+        for feature, valid_categories in self.known_categories.items():
+            if feature not in data.columns:
+                errors.append(f"Missing required categorical feature: {feature}")
+            else:
+                value = str(data[feature].iloc[0]).lower()
+                if value not in valid_categories:
+                    if feature == 'make_name_cleaned':
+                        print(f"Warning: Unknown make '{value}', will be treated as 'other'")
+                        data.loc[data.index[0], feature] = 'other'
+                    else:
+                        warnings.append(f"Unknown {feature} value: {value}")
         
-        # Mileage validation with realistic bounds
-        mileage = data['mileage_num'].iloc[0]
-        if mileage > 1000000:
-            errors.append("Mileage exceeds reasonable limit (1,000,000 km)")
-        elif mileage > 500000:
-            warnings.append("Mileage is unusually high - verify accuracy")
-        elif mileage > 300000:
-            warnings.append("High mileage may affect price significantly")
-        elif mileage < 0:
-            errors.append("Mileage cannot be negative")
-        
-        # Engine size validation with make-specific ranges
-        engine = data['engine_size_cc_num'].iloc[0]
-        make = data['make_name_cleaned'].iloc[0]
-        
-        # Make-specific engine size validation
-        if make in ['bmw', 'mercedes', 'audi']:
-            if engine > 6000:
-                warnings.append(f"Engine size {engine}cc is unusually large for {make}")
-            elif engine < 1200:
-                warnings.append(f"Engine size {engine}cc is unusually small for {make}")
-        else:
-            if engine > 8000:
-                errors.append("Engine size exceeds maximum allowed (8,000 cc)")
-            elif engine < 600:
-                errors.append("Engine size below minimum allowed (600 cc)")
-        
-        # Power validation with make-specific ranges
-        power = data['horse_power_num'].iloc[0]
-        if make in ['porsche', 'ferrari', 'lamborghini']:
-            if power > 800:
-                warnings.append(f"Very high horsepower ({power}hp) - verify specifications")
-            elif power < 300:
-                warnings.append(f"Unusually low horsepower ({power}hp) for {make}")
-        else:
-            if power > 500:
-                warnings.append(f"Very high horsepower ({power}hp) - verify specifications")
-            elif power < 30:
-                errors.append("Horsepower below minimum allowed (30 hp)")
-        
-        # Torque validation
-        torque = data['torque_num'].iloc[0]
-        if torque > 1000:
-            warnings.append(f"Very high torque ({torque}Nm) - verify specifications")
-        elif torque < 30:
-            errors.append("Torque below minimum allowed (30 Nm)")
-        
-        # Advanced ratio validations with enhanced thresholds
-        power_per_cc = power / (engine + 1e-6)
-        if power_per_cc > 0.25:  # Adjusted for high-performance vehicles
-            warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually high")
-        elif power_per_cc < 0.03:  # Added lower bound
-            warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually low")
-        
-        torque_per_hp = torque / (power + 1e-6)
-        if torque_per_hp > 5:  # Adjusted for modern diesel engines
-            warnings.append(f"Torque-to-power ratio ({torque_per_hp:.1f} Nm/hp) is unusually high")
-        elif torque_per_hp < 0.5:  # Added lower bound
-            warnings.append(f"Torque-to-power ratio ({torque_per_hp:.1f} Nm/hp) is unusually low")
+        # Make-specific validations
+        if 'make_name_cleaned' in data.columns and not data['make_name_cleaned'].isna().any():
+            make = str(data['make_name_cleaned'].iloc[0]).lower()
+            
+            # Engine size validation
+            if 'engine_size_cc_num' in data.columns and not data['engine_size_cc_num'].isna().any():
+                engine = data['engine_size_cc_num'].iloc[0]
+                if make in ['bmw', 'mercedes', 'audi']:
+                    if engine > 6000:
+                        warnings.append(f"Engine size {engine}cc is unusually large for {make}")
+                    elif engine < 1200:
+                        warnings.append(f"Engine size {engine}cc is unusually small for {make}")
+            
+            # Power validation
+            if 'horse_power_num' in data.columns and not data['horse_power_num'].isna().any():
+                power = data['horse_power_num'].iloc[0]
+                if make in ['porsche', 'ferrari', 'lamborghini']:
+                    if power > 800:
+                        warnings.append(f"Very high horsepower ({power}hp) - verify specifications")
+                    elif power < 300:
+                        warnings.append(f"Unusually low horsepower ({power}hp) for {make}")
+                
+                # Power per cc validation if both values are available
+                if 'engine_size_cc_num' in data.columns and not data['engine_size_cc_num'].isna().any():
+                    engine = data['engine_size_cc_num'].iloc[0]
+                    if engine > 0:
+                        power_per_cc = power / engine
+                        if power_per_cc > 0.25:
+                            warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually high")
+                        elif power_per_cc < 0.03:
+                            warnings.append(f"Power-to-engine ratio ({power_per_cc:.2f} hp/cc) is unusually low")
+            
+            # Torque validation
+            if 'torque_num' in data.columns and not data['torque_num'].isna().any():
+                torque = data['torque_num'].iloc[0]
+                if torque > 1000:
+                    warnings.append(f"Very high torque ({torque}Nm) - verify specifications")
         
         # Insurance validation
-        insurance = data['annual_insurance'].iloc[0]
-        if insurance > 500000:
-            warnings.append("Annual insurance cost is unusually high")
-        elif insurance < 10000:
-            warnings.append("Annual insurance cost seems unusually low")
+        if 'annual_insurance' in data.columns and not data['annual_insurance'].isna().any():
+            insurance = data['annual_insurance'].iloc[0]
+            if insurance > 500000:
+                warnings.append("Annual insurance cost is unusually high")
+            elif insurance < 10000:
+                warnings.append("Annual insurance cost seems unusually low")
         
-        # Raise error if any hard limits are violated
         if errors:
             raise ValueError("Validation errors: " + "; ".join(errors))
             
@@ -274,11 +242,34 @@ class ModelFeatures:
     def add_prefix(self, data: pd.DataFrame) -> pd.DataFrame:
         df = data.copy()
         
-        # First ensure no NaN values in numeric columns
+        # Define default values for numeric features
+        defaults = {
+            'annual_insurance': 40000,
+            'car_age': 0,
+            'mileage_num': 0,
+            'engine_size_cc_num': 1500,
+            'horse_power_num': 100,
+            'torque_num': 150,
+            'seats_num': 5,
+            'car_age_squared': 0,
+            'mileage_log': 0,
+            'mileage_per_year': 0,
+            'engine_size_cc_log': 0,
+            'horse_power_log': 0,
+            'torque_log': 0,
+            'power_per_cc': 0,
+            'torque_per_cc': 0,
+            'power_to_weight': 0,
+            'power_to_torque': 0,
+            'performance_score': 0
+        }
+        
+        # Handle NaN values in numeric columns
         for col in self.numeric_features + self.derived_features + ['annual_insurance']:
-            if col in df.columns and df[col].isna().any():
-                print(f"Warning: Found NaN in {col} during prefix addition, filling with 0")
-                df[col] = df[col].fillna(0)
+            if col in df.columns:
+                if df[col].isna().any():
+                    print(f"Warning: Found NaN in {col} during prefix addition, filling with {defaults.get(col, 0)}")
+                    df[col] = df[col].fillna(defaults.get(col, 0))
         
         # Add prefixes
         renamed = {}
@@ -292,14 +283,15 @@ class ModelFeatures:
         
         # Rename and verify no NaN values
         result = df.rename(columns=renamed)
-        
-        # Final NaN check
-        nan_cols = result.columns[result.isna().any()].tolist()
-        if nan_cols:
-            print("Warning: NaN values found after prefix addition in:", nan_cols)
-            print("Filling remaining NaN values with 0")
-            result = result.fillna(0)
             
+        # Final NaN check and fill
+        for col in result.columns:
+            if col.startswith('num_'):
+                base_col = col.split('__')[-1]
+                if result[col].isna().any():
+                    print(f"Warning: Filling NaN in {col} with default value {defaults.get(base_col, 0)}")
+                    result[col] = result[col].fillna(defaults.get(base_col, 0))
+        
         return result
 
     def create_one_hot_features(self, data: pd.DataFrame) -> pd.DataFrame:
