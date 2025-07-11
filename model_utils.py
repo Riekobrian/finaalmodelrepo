@@ -487,256 +487,210 @@ class ModelFeatures:
                 renamed[feature] = f"{spec['prefix']}__{feature}"
         
         return df.rename(columns=renamed)
-# Global variables to store current model state
-_current_model = None
-_current_preprocessor = None
-
-def load_model():
-    """Load the model from cloud storage"""
-    global _current_model
+class FeatureMapper:
+    """Maps user inputs to model features"""
     
-    if _current_model is None:
-        try:
-            import warnings
-            warnings.filterwarnings('ignore', category=UserWarning)
+    def __init__(self):
+        # Define mappings between user inputs and model features
+        self.input_to_model_mapping = {
+            # Direct numeric mappings
+            'insurance': {'model_feature': 'num_insurance__annual_insurance', 'type': 'numeric'},
+            'car_age': {'model_feature': 'num_main__car_age', 'type': 'numeric'},
+            'mileage': {'model_feature': 'num_main__mileage_num', 'type': 'numeric'},
+            'engine_size': {'model_feature': 'num_main__engine_size_cc_num', 'type': 'numeric'},
+            'horsepower': {'model_feature': 'num_main__horse_power_num', 'type': 'numeric'},
+            'torque': {'model_feature': 'num_main__torque_num', 'type': 'numeric'},
+            'seats': {'model_feature': 'num_main__seats_num', 'type': 'numeric'},
+            'acceleration': {'model_feature': 'num_main__acceleration_num', 'type': 'numeric'},
             
-            # Download and load model
-            model_path = download_artifact(MODEL_URL, "model.joblib")
-            print("Model downloaded, attempting to load...")
-            _current_model = load(model_path)
-            print("Model loaded successfully")
-            
-        except Exception as e:
-            import traceback
-            print(f"Error loading model: {str(e)}")
-            print("Full traceback:")
-            print(traceback.format_exc())
-            raise ValueError(f"Failed to load model: {str(e)}")
+            # Categorical mappings
+            'make': {'model_feature': 'cat__make_name_cleaned', 'type': 'categorical'},
+            'model': {'model_feature': 'cat__model_name_cleaned', 'type': 'categorical'},
+            'body_type': {'model_feature': 'cat__body_type_cleaned', 'type': 'categorical'},
+            'fuel_type': {'model_feature': 'cat__fuel_type_cleaned', 'type': 'categorical'},
+            'transmission': {'model_feature': 'cat__transmission_cleaned', 'type': 'categorical'},
+            'drive_type': {'model_feature': 'cat__drive_type_cleaned', 'type': 'categorical'},
+            'usage_type': {'model_feature': 'cat__usage_type_clean', 'type': 'categorical'}
+        }
+        
+        # Define derived feature calculations
+        self.derived_features = {
+            'num_main__car_age_squared': lambda x: x['car_age'] ** 2,
+            'num_main__mileage_log': lambda x: np.log1p(x['mileage']),
+            'num_main__mileage_per_year': lambda x: x['mileage'] / max(x['car_age'], 1),
+            'num_main__engine_size_cc_log': lambda x: np.log1p(x['engine_size']),
+            'num_main__horse_power_log': lambda x: np.log1p(x['horsepower']),
+            'num_main__torque_log': lambda x: np.log1p(x['torque']),
+            'num_main__power_per_cc': lambda x: x['horsepower'] / max(x['engine_size'], 1),
+            'num_main__mileage_per_cc': lambda x: x['mileage'] / max(x['engine_size'], 1),
+            'num_main__is_luxury_make': lambda x: 1 if x['make'].lower() in ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar'] else 0
+        }
+        
+        # Define value ranges and defaults
+        self.feature_ranges = {
+            'insurance': {'min': 10000, 'max': 500000, 'default': 40000},
+            'car_age': {'min': 0, 'max': 50, 'default': 5},
+            'mileage': {'min': 0, 'max': 1000000, 'default': 50000},
+            'engine_size': {'min': 600, 'max': 8000, 'default': 1500},
+            'horsepower': {'min': 30, 'max': 1000, 'default': 100},
+            'torque': {'min': 30, 'max': 1200, 'default': 150},
+            'acceleration': {'min': 0, 'max': 30, 'default': 12.0},
+            'seats': {'min': 2, 'max': 15, 'default': 5}
+        }
+        
+        # Define categorical value mappings
+        self.categorical_mappings = {
+            'make': {
+                'valid_values': ['toyota', 'honda', 'mazda', 'nissan', 'suzuki', 'mitsubishi', 'subaru',
+                               'bmw', 'mercedes', 'audi', 'volkswagen', 'porsche', 'lexus', 'land rover',
+                               'jaguar', 'hyundai', 'kia'],
+                'default': 'toyota',
+                'other_value': 'other'
+            },
+            'fuel_type': {
+                'valid_values': ['petrol', 'diesel', 'hybrid_petrol', 'hybrid_diesel', 'electric'],
+                'default': 'petrol',
+                'other_value': 'unknown'
+            },
+            'transmission': {
+                'valid_values': ['automatic', 'manual', 'automated_manual'],
+                'default': 'manual',
+                'other_value': 'unknown'
+            },
+            'drive_type': {
+                'valid_values': ['2wd', '4wd', 'awd'],
+                'default': '2wd',
+                'other_value': 'unknown'
+            },
+            'body_type': {
+                'valid_values': ['sedan', 'suv', 'hatchback', 'wagon', 'van_minivan', 'pickup_truck', 
+                               'coupe', 'bus', 'convertible'],
+                'default': 'sedan',
+                'other_value': 'other'
+            },
+            'usage_type': {
+                'valid_values': ['Foreign Used', 'Kenyan Used'],
+                'default': 'Foreign Used',
+                'other_value': 'Foreign Used'
+            }
+        }
 
+    def map_input_to_features(self, user_input: dict) -> pd.DataFrame:
+        """Maps user input to model features"""
+        # Initialize storage for mapped features
+        mapped_features = {}
+        warnings = []
+        
+        # Process direct mappings
+        for input_name, mapping in self.input_to_model_mapping.items():
+            if mapping['type'] == 'numeric':
+                # Handle numeric features
+                value = user_input.get(input_name)
+                if value is None:
+                    value = self.feature_ranges[input_name]['default']
+                    warnings.append(f"Using default value {value} for {input_name}")
+                else:
+                    value = float(value)
+                    # Clip to valid range
+                    min_val = self.feature_ranges[input_name]['min']
+                    max_val = self.feature_ranges[input_name]['max']
+                    if value < min_val or value > max_val:
+                        old_value = value
+                        value = np.clip(value, min_val, max_val)
+                        warnings.append(f"Clipped {input_name} from {old_value} to {value}")
+                
+                mapped_features[mapping['model_feature']] = value
+                
+            elif mapping['type'] == 'categorical':
+                # Handle categorical features
+                value = str(user_input.get(input_name, '')).lower()
+                cat_info = self.categorical_mappings.get(input_name, {})
+                
+                if value not in cat_info.get('valid_values', []):
+                    old_value = value
+                    value = cat_info.get('other_value', cat_info.get('default', value))
+                    warnings.append(f"Mapped invalid {input_name} '{old_value}' to '{value}'")
+                
+                mapped_features[mapping['model_feature']] = value
+        
+        # Calculate derived features
+        temp_input = {k: user_input.get(k, self.feature_ranges.get(k, {}).get('default', 0)) 
+                     for k in ['car_age', 'mileage', 'engine_size', 'horsepower', 'torque', 'make']}
+        
+        for feature_name, calculation in self.derived_features.items():
+            try:
+                mapped_features[feature_name] = calculation(temp_input)
+            except Exception as e:
+                warnings.append(f"Error calculating {feature_name}: {str(e)}")
+                mapped_features[feature_name] = 0
+        
+        return pd.DataFrame([mapped_features]), warnings
+
+    def get_required_inputs(self) -> dict:
+        """Returns the list of required inputs with their specifications"""
+        return {
+            'numeric_inputs': self.feature_ranges,
+            'categorical_inputs': self.categorical_mappings
+        }
+
+# Update ModelFeatures to use FeatureMapper
 def predict_price(input_data: Union[Dict, pd.DataFrame]) -> tuple[float, List[str]]:
-    """Make a prediction using the current model with comprehensive feature preprocessing"""
+    """Make a prediction using the current model with input mapping"""
     global _current_model
     
     # Load model if not already loaded
     if _current_model is None:
         load_model()
     
-    # Convert dictionary to DataFrame if needed
-    if isinstance(input_data, dict):
-        input_data = pd.DataFrame([input_data])
-    
     try:
-        # Initialize feature processor
-        features = ModelFeatures()
+        # Map input to features
+        mapper = FeatureMapper()
+        if isinstance(input_data, dict):
+            mapped_data, warnings = mapper.map_input_to_features(input_data)
+        else:
+            # If already a DataFrame, assume it's in the correct format
+            mapped_data = input_data
+            warnings = []
         
-        # Process all features
-        processed_data, adjustment_factors, warnings = features.preprocess_features(input_data)
+        # Create categorical features
+        all_features = pd.DataFrame()
         
-        # Create one-hot encoded features
-        encoded_data = features.create_one_hot_features(processed_data)
-        
-        # Combine numeric and categorical features
-        final_data = pd.concat([processed_data, encoded_data], axis=1)
+        # Add one-hot encoded features
+        for col in mapped_data.columns:
+            if col.startswith('cat__'):
+                feature = col.split('__')[1]
+                value = mapped_data[col].iloc[0]
+                cat_info = mapper.categorical_mappings.get(feature.split('_')[0], {})
+                valid_values = cat_info.get('valid_values', [value])
+                
+                for val in valid_values:
+                    col_name = f"{col}_{val}"
+                    all_features[col_name] = 1 if value == val else 0
+            else:
+                all_features[col] = mapped_data[col]
         
         # Ensure all model features are present
         if hasattr(_current_model, 'feature_names_in_'):
             required_features = set(_current_model.feature_names_in_)
-            current_features = set(final_data.columns)
+            current_features = set(all_features.columns)
             
             # Add missing features with zeros
             missing_features = required_features - current_features
             if missing_features:
-                print(f"Adding missing features with zeros: {missing_features}")
                 for feature in missing_features:
-                    final_data[feature] = 0
+                    all_features[feature] = 0
             
             # Ensure correct column order
-            final_data = final_data[_current_model.feature_names_in_]
+            all_features = all_features[_current_model.feature_names_in_]
         
         # Make prediction
-        prediction = _current_model.predict(final_data)
+        prediction = _current_model.predict(all_features)
         
-        # Apply market adjustments
+        # Convert prediction if needed
         if isinstance(prediction, np.ndarray) and prediction.size == 1:
             prediction = np.exp(prediction[0])
-            
-            # Apply adjustment factors
-            total_adjustment = (
-                adjustment_factors['brand_factor'] *
-                adjustment_factors['mileage_factor'] *
-                adjustment_factors['age_factor'] *
-                adjustment_factors['usage_factor']
-            )
-            
-            prediction *= total_adjustment
         
         return prediction, warnings
         
     except Exception as e:
         raise ValueError(f"Prediction failed: {str(e)}")
-
-def get_model_info() -> dict:
-    """Get information about the current model"""
-    if _current_model is None:
-        load_model()
-    
-    return {
-        "model_type": str(_current_model.__class__.__name__),
-        "features": list(_current_model.feature_names_in_) if hasattr(_current_model, 'feature_names_in_') else None
-    }
-
-def debug_dataframe(df: pd.DataFrame, stage: str) -> None:
-    """Helper function to debug DataFrame issues"""
-    print(f"\nDebugging DataFrame at stage: {stage}")
-    
-    # Check for NaN values
-    nan_cols = df.columns[df.isna().any()].tolist()
-    if nan_cols:
-        print(f"NaN values found in columns: {nan_cols}")
-        for col in nan_cols:
-            print(f"Column {col}: {df[col].isna().sum()} NaN values")
-    
-    # Check for all-zero columns
-    zero_cols = df.columns[(df == 0).all()].tolist()
-    if zero_cols:
-        print(f"Columns with all zeros: {zero_cols}")
-    
-    # Print basic statistics for numeric columns
-    print("\nNumeric columns summary:")
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    if len(numeric_cols) > 0:
-        print(df[numeric_cols].describe())
-
-def inspect_model_features():
-    """Analyze and print information about the model's features"""
-    global _current_model
-    
-    if _current_model is None:
-        load_model()
-    
-    if not hasattr(_current_model, 'feature_names_in_'):
-        print("Model does not expose feature names")
-        return
-    
-    feature_names = _current_model.feature_names_in_
-    
-    # Categorize features by prefix
-    feature_categories = {
-        'num_insurance': [],
-        'num_main': [],
-        'cat': []
-    }
-    
-    for feature in feature_names:
-        if feature.startswith('num_insurance__'):
-            feature_categories['num_insurance'].append(feature)
-        elif feature.startswith('num_main__'):
-            feature_categories['num_main'].append(feature)
-        elif feature.startswith('cat__'):
-            feature_categories['cat'].append(feature)
-    
-    print("\nModel Feature Analysis:")
-    print("======================")
-    
-    print("\nNumeric Insurance Features:")
-    for f in feature_categories['num_insurance']:
-        print(f"- {f}")
-    
-    print("\nMain Numeric Features:")
-    print("Basic Features:")
-    basic = [f for f in feature_categories['num_main'] 
-             if not any(x in f for x in ['squared', 'log', 'per', 'power', 'score', 'factor'])]
-    for f in basic:
-        print(f"- {f}")
-    
-    print("\nDerived Features:")
-    derived = [f for f in feature_categories['num_main'] 
-              if any(x in f for x in ['squared', 'log', 'per', 'power', 'score', 'factor'])]
-    for f in derived:
-        print(f"- {f}")
-    
-    print("\nCategorical Features:")
-    for f in feature_categories['cat']:
-        print(f"- {f}")
-    
-    return feature_categories
-
-def map_input_features(input_dict: dict) -> dict:
-    """Map raw input features to expected model features"""
-    features = ModelFeatures()
-    
-    # Standard feature ranges
-    feature_ranges = {
-        'car_age': (0, 50),
-        'mileage_num': (0, 1000000),
-        'engine_size_cc_num': (600, 8000),
-        'horse_power_num': (30, 1000),
-        'torque_num': (30, 1200),
-        'seats_num': (2, 15),
-        'annual_insurance': (10000, 500000)
-    }
-    
-    # Default values for categorical features
-    categorical_defaults = {
-        'make_name_cleaned': 'toyota',
-        'model_name_cleaned': 'other',
-        'fuel_type_cleaned': 'petrol',
-        'transmission_cleaned': 'manual',
-        'drive_type_cleaned': '2wd',
-        'body_type_cleaned': 'sedan',
-        'usage_type_clean': 'Foreign Used'
-    }
-    
-    # Clip values to valid ranges
-    mapped = {}
-    for feature, (min_val, max_val) in feature_ranges.items():
-        if feature in input_dict:
-            mapped[feature] = np.clip(float(input_dict[feature]), min_val, max_val)
-    
-    # Map categorical features
-    for feature, default_value in categorical_defaults.items():
-        if feature in input_dict:
-            value = str(input_dict[feature]).lower()
-            if feature in features.known_categories:
-                if value in features.known_categories[feature]:
-                    mapped[feature] = value
-                else:
-                    if feature == 'make_name_cleaned':
-                        print(f"Warning: Unknown make '{value}', using 'other'")
-                        mapped[feature] = 'other'
-                    else:
-                        print(f"Warning: Unknown {feature} value '{value}', using default '{default_value}'")
-                        mapped[feature] = default_value
-            else:
-                mapped[feature] = value
-        else:
-            mapped[feature] = default_value
-    
-    # Print feature mapping debug info
-    print("\nFeature Mapping Analysis:")
-    print("========================")
-    print("\nNumeric Features:")
-    for feature in feature_ranges.keys():
-        if feature in input_dict:
-            original = input_dict[feature]
-            mapped_value = mapped[feature]
-            if original != mapped_value:
-                print(f"- {feature}: Original={original}, Mapped={mapped_value} (clipped to valid range)")
-            else:
-                print(f"- {feature}: {mapped_value} (within valid range)")
-        else:
-            print(f"- {feature}: Missing - using default value")
-    
-    print("\nCategorical Features:")
-    for feature in categorical_defaults.keys():
-        if feature in input_dict:
-            original = input_dict[feature]
-            mapped_value = mapped[feature]
-            if original.lower() != mapped_value:
-                print(f"- {feature}: Original='{original}', Mapped='{mapped_value}' (standardized)")
-            else:
-                print(f"- {feature}: '{mapped_value}' (valid category)")
-        else:
-            print(f"- {feature}: Missing - using default '{categorical_defaults[feature]}'")
-    
-    return mapped
