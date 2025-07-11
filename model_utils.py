@@ -28,46 +28,89 @@ def download_artifact(url: str, filename: str) -> str:
 
 class ModelFeatures:
     def __init__(self):
-        # Core model features
-        self.numeric_features = [
-            'annual_insurance', 'car_age', 'mileage_num', 'engine_size_cc_num',
-            'horse_power_num', 'torque_num', 'seats_num', 'acceleration_num',
-            'is_luxury_make'
-        ]
-        self.categorical_features = [
-            'fuel_type_cleaned', 'transmission_cleaned', 'drive_type_cleaned',
-            'usage_type_clean', 'body_type_cleaned', 'make_name_cleaned',
-            'model_name_cleaned'
-        ]
-        self.derived_features = [
-            'car_age_squared', 'mileage_log', 'mileage_per_year',
-            'engine_size_cc_log', 'horse_power_log', 'torque_log',
-            'power_per_cc', 'torque_per_cc', 'power_to_weight',
-            'power_to_torque', 'performance_score'
-        ]
-        
-        # Post-prediction adjustment factors (kept separate from model features)
-        self.adjustment_features = [
-            'brand_factor', 'mileage_factor', 'age_factor',
-            'usage_factor', 'total_depreciation'
-        ]
-        
-        self.known_categories = {
-            'fuel_type_cleaned': ['petrol', 'diesel', 'hybrid_petrol', 'hybrid_diesel', 
-                                'electric', 'plugin_hybrid_petrol', 'unknown'],
-            'transmission_cleaned': ['automatic', 'manual', 'automated_manual', 'unknown'],
-            'drive_type_cleaned': ['2wd', '2wd_front', '2wd_mid_engine', '2wd_rear', 
-                                 '4wd', 'awd', 'unknown'],
-            'body_type_cleaned': ['sedan', 'suv', 'hatchback', 'wagon', 'van_minivan', 
-                                'pickup_truck', 'coupe', 'bus', 'convertible'],
-            'make_name_cleaned': [
-                'toyota', 'honda', 'mazda', 'nissan', 'suzuki', 'mitsubishi', 'subaru',  # Japanese
-                'bmw', 'mercedes', 'audi', 'volkswagen', 'porsche',  # German
-                'lexus', 'land rover', 'jaguar',  # Luxury
-                'hyundai', 'kia',  # Korean
-                'other'  # Fallback
-            ]
+        # Feature definitions with validation rules and defaults
+        self.feature_specs = {
+            # Basic numeric features
+            'annual_insurance': {'type': 'numeric', 'prefix': 'num_insurance', 'min': 10000, 'max': 500000, 'default': 40000},
+            'car_age': {'type': 'numeric', 'prefix': 'num_main', 'min': 0, 'max': 50, 'default': 5},
+            'mileage_num': {'type': 'numeric', 'prefix': 'num_main', 'min': 0, 'max': 1000000, 'default': 50000},
+            'engine_size_cc_num': {'type': 'numeric', 'prefix': 'num_main', 'min': 600, 'max': 8000, 'default': 1500},
+            'horse_power_num': {'type': 'numeric', 'prefix': 'num_main', 'min': 30, 'max': 1000, 'default': 100},
+            'torque_num': {'type': 'numeric', 'prefix': 'num_main', 'min': 30, 'max': 1200, 'default': 150},
+            'acceleration_num': {'type': 'numeric', 'prefix': 'num_main', 'min': 0, 'max': 30, 'default': 12.0},
+            'seats_num': {'type': 'numeric', 'prefix': 'num_main', 'min': 2, 'max': 15, 'default': 5},
+            'is_luxury_make': {'type': 'numeric', 'prefix': 'num_main', 'min': 0, 'max': 1, 'default': 0},
+            
+            # Categorical features with valid values
+            'make_name_cleaned': {
+                'type': 'categorical', 
+                'prefix': 'cat',
+                'valid_values': [
+                    'toyota', 'honda', 'mazda', 'nissan', 'suzuki', 'mitsubishi', 'subaru',  # Japanese
+                    'bmw', 'mercedes', 'audi', 'volkswagen', 'porsche',  # German
+                    'lexus', 'land rover', 'jaguar',  # Luxury
+                    'hyundai', 'kia',  # Korean
+                    'other'  # Fallback
+                ],
+                'default': 'toyota'
+            },
+            'fuel_type_cleaned': {
+                'type': 'categorical',
+                'prefix': 'cat',
+                'valid_values': ['petrol', 'diesel', 'hybrid_petrol', 'hybrid_diesel', 'electric', 'plugin_hybrid_petrol', 'unknown'],
+                'default': 'petrol'
+            },
+            'transmission_cleaned': {
+                'type': 'categorical',
+                'prefix': 'cat',
+                'valid_values': ['automatic', 'manual', 'automated_manual', 'unknown'],
+                'default': 'manual'
+            },
+            'drive_type_cleaned': {
+                'type': 'categorical',
+                'prefix': 'cat',
+                'valid_values': ['2wd', '2wd_front', '2wd_mid_engine', '2wd_rear', '4wd', 'awd', 'unknown'],
+                'default': '2wd'
+            },
+            'body_type_cleaned': {
+                'type': 'categorical',
+                'prefix': 'cat',
+                'valid_values': ['sedan', 'suv', 'hatchback', 'wagon', 'van_minivan', 'pickup_truck', 'coupe', 'bus', 'convertible', 'other'],
+                'default': 'sedan'
+            },
+            'usage_type_clean': {
+                'type': 'categorical',
+                'prefix': 'cat',
+                'valid_values': ['Foreign Used', 'Kenyan Used'],
+                'default': 'Foreign Used'
+            }
         }
+        
+        # Derived feature definitions
+        self.derived_features = {
+            'car_age_squared': {'type': 'derived', 'prefix': 'num_main', 'base': 'car_age', 'operation': 'square'},
+            'mileage_log': {'type': 'derived', 'prefix': 'num_main', 'base': 'mileage_num', 'operation': 'log'},
+            'mileage_per_year': {'type': 'derived', 'prefix': 'num_main', 'base': ['mileage_num', 'car_age'], 'operation': 'divide'},
+            'engine_size_cc_log': {'type': 'derived', 'prefix': 'num_main', 'base': 'engine_size_cc_num', 'operation': 'log'},
+            'horse_power_log': {'type': 'derived', 'prefix': 'num_main', 'base': 'horse_power_num', 'operation': 'log'},
+            'torque_log': {'type': 'derived', 'prefix': 'num_main', 'base': 'torque_num', 'operation': 'log'},
+            'power_per_cc': {'type': 'derived', 'prefix': 'num_main', 'base': ['horse_power_num', 'engine_size_cc_num'], 'operation': 'divide'},
+            'mileage_per_cc': {'type': 'derived', 'prefix': 'num_main', 'base': ['mileage_num', 'engine_size_cc_num'], 'operation': 'divide'},
+            'power_to_weight': {'type': 'derived', 'prefix': 'num_main', 'base': 'horse_power_num', 'operation': 'power_to_weight'},
+            'power_to_torque': {'type': 'derived', 'prefix': 'num_main', 'base': ['horse_power_num', 'torque_num'], 'operation': 'divide'},
+            'performance_score': {'type': 'derived', 'prefix': 'num_main', 'base': ['power_to_weight', 'power_to_torque'], 'operation': 'performance'}
+        }
+        
+        # Market segment definitions
+        self.market_segments = {
+            'luxury': ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar'],
+            'premium': ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru'],
+            'economy': ['suzuki', 'mitsubishi', 'nissan', 'hyundai', 'kia']
+        }
+        
+        # Initialize feature lists from specs
+        self.numeric_features = [name for name, spec in self.feature_specs.items() if spec['type'] == 'numeric']
+        self.categorical_features = [name for name, spec in self.feature_specs.items() if spec['type'] == 'categorical']
 
     def engineer_features(self, data: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         df = data.copy()
@@ -316,6 +359,134 @@ class ModelFeatures:
         
         return pd.DataFrame(one_hot_data, index=data.index)
 
+    def preprocess_features(self, data: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+        """
+        Comprehensive feature preprocessing pipeline
+        """
+        df = data.copy()
+        warnings = []
+        adjustment_factors = {}
+        
+        try:
+            # 1. Validate and process basic features
+            df = self._process_basic_features(df, warnings)
+            
+            # 2. Calculate derived features
+            df = self._calculate_derived_features(df, warnings)
+            
+            # 3. Calculate market factors
+            adjustment_factors = self._calculate_market_factors(df)
+            
+            # 4. Add prefixes and final validation
+            df = self._add_feature_prefixes(df)
+            
+            # 5. Final NaN check
+            nan_cols = df.columns[df.isna().any()].tolist()
+            if nan_cols:
+                raise ValueError(f"NaN values found in columns after preprocessing: {nan_cols}")
+            
+            return df, adjustment_factors, warnings
+            
+        except Exception as e:
+            raise ValueError(f"Feature preprocessing failed: {str(e)}")
+
+    def _process_basic_features(self, df: pd.DataFrame, warnings: list) -> pd.DataFrame:
+        """Process and validate basic features"""
+        for feature, spec in self.feature_specs.items():
+            # Ensure feature exists
+            if feature not in df.columns:
+                print(f"Adding missing feature {feature} with default value {spec['default']}")
+                df[feature] = spec['default']
+            
+            if spec['type'] == 'numeric':
+                # Convert to numeric and handle invalid values
+                df[feature] = pd.to_numeric(df[feature], errors='coerce').fillna(spec['default'])
+                
+                # Clip to valid range
+                original_value = df[feature].iloc[0]
+                df[feature] = df[feature].clip(lower=spec['min'], upper=spec['max'])
+                if df[feature].iloc[0] != original_value:
+                    warnings.append(f"{feature} value {original_value} was clipped to {df[feature].iloc[0]}")
+                
+            elif spec['type'] == 'categorical':
+                # Convert to lowercase and validate
+                df[feature] = df[feature].astype(str).str.lower()
+                if df[feature].iloc[0] not in spec['valid_values']:
+                    warnings.append(f"Invalid {feature} value: {df[feature].iloc[0]}, using default: {spec['default']}")
+                    df[feature] = spec['default']
+        
+        return df
+
+    def _calculate_derived_features(self, df: pd.DataFrame, warnings: list) -> pd.DataFrame:
+        """Calculate all derived features"""
+        for feature, spec in self.derived_features.items():
+            try:
+                if spec['operation'] == 'square':
+                    df[feature] = df[spec['base']].clip(lower=0) ** 2
+                elif spec['operation'] == 'log':
+                    df[feature] = np.log1p(df[spec['base']].clip(lower=0))
+                elif spec['operation'] == 'divide':
+                    numerator, denominator = spec['base']
+                    df[feature] = (df[numerator] / df[denominator].clip(lower=1)).clip(lower=0)
+                elif spec['operation'] == 'power_to_weight':
+                    # Estimate weight based on engine size and vehicle type
+                    base_weight = df['engine_size_cc_num'] * 0.9
+                    body_type_factors = {'suv': 1.2, 'pickup_truck': 1.3, 'bus': 2.0, 'van_minivan': 1.4}
+                    weight_factor = body_type_factors.get(df['body_type_cleaned'].iloc[0], 1.0)
+                    estimated_weight = base_weight * weight_factor
+                    df[feature] = (df[spec['base']] / estimated_weight.clip(lower=1)).clip(lower=0, upper=1)
+                elif spec['operation'] == 'performance':
+                    df[feature] = (df[spec['base'][0]] * df[spec['base'][1]]).clip(lower=0) ** 0.5
+            except Exception as e:
+                warnings.append(f"Error calculating {feature}: {str(e)}")
+                df[feature] = 0
+        
+        return df
+
+    def _calculate_market_factors(self, df: pd.DataFrame) -> dict:
+        """Calculate market adjustment factors"""
+        factors = {}
+        
+        # Brand factor based on market segment
+        make = df['make_name_cleaned'].iloc[0]
+        if make in self.market_segments['luxury']:
+            factors['brand_factor'] = 1.3
+            df['is_luxury_make'] = 1
+        elif make in self.market_segments['premium']:
+            factors['brand_factor'] = 1.1
+            df['is_luxury_make'] = 0
+        else:
+            factors['brand_factor'] = 0.9
+            df['is_luxury_make'] = 0
+        
+        # Age and mileage factors
+        factors['age_factor'] = 0.90 ** df['car_age'].iloc[0]
+        factors['mileage_factor'] = 0.95 ** (df['mileage_num'].iloc[0] / 10000)
+        
+        # Usage factor
+        usage = df['usage_type_clean'].iloc[0]
+        factors['usage_factor'] = 1.1 if usage == 'Foreign Used' else 0.9 if usage == 'Kenyan Used' else 1.0
+        
+        # Calculate total depreciation
+        factors['total_depreciation'] = factors['age_factor'] * factors['mileage_factor'] * factors['brand_factor']
+        
+        return factors
+
+    def _add_feature_prefixes(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add proper prefixes to all features"""
+        renamed = {}
+        
+        # Add prefixes based on feature specifications
+        for feature, spec in self.feature_specs.items():
+            if feature in df.columns:
+                renamed[feature] = f"{spec['prefix']}__{feature}"
+        
+        # Add prefixes for derived features
+        for feature, spec in self.derived_features.items():
+            if feature in df.columns:
+                renamed[feature] = f"{spec['prefix']}__{feature}"
+        
+        return df.rename(columns=renamed)
 # Global variables to store current model state
 _current_model = None
 _current_preprocessor = None
@@ -342,101 +513,54 @@ def load_model():
             print(traceback.format_exc())
             raise ValueError(f"Failed to load model: {str(e)}")
 
-def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
-    """Make a prediction using the current model with proper feature handling"""
+def predict_price(input_data: Union[Dict, pd.DataFrame]) -> tuple[float, List[str]]:
+    """Make a prediction using the current model with comprehensive feature preprocessing"""
     global _current_model
     
     # Load model if not already loaded
     if _current_model is None:
         load_model()
-        
-    # Analyze model features first
-    print("\nAnalyzing model features...")
-    feature_categories = inspect_model_features()
     
     # Convert dictionary to DataFrame if needed
     if isinstance(input_data, dict):
-        # Map input features to expected ranges
-        mapped_data = map_input_features(input_data)
-        input_data = pd.DataFrame([mapped_data])
+        input_data = pd.DataFrame([input_data])
     
     try:
+        # Initialize feature processor
         features = ModelFeatures()
         
-        # Step 1: Validate input
-        warnings = features.validate_features(input_data)
-        for warning in warnings:
-            print(f"Warning: {warning}")
+        # Process all features
+        processed_data, adjustment_factors, warnings = features.preprocess_features(input_data)
         
-        # Step 2: Engineer features and get adjustment factors
-        engineered_data, adjustment_factors = features.engineer_features(input_data)
-        debug_dataframe(engineered_data, "After Feature Engineering")
+        # Create one-hot encoded features
+        encoded_data = features.create_one_hot_features(processed_data)
         
-        # Step 3: Create one-hot encoded features
-        encoded_data = features.create_one_hot_features(engineered_data)
-        debug_dataframe(encoded_data, "After One-Hot Encoding")
+        # Combine numeric and categorical features
+        final_data = pd.concat([processed_data, encoded_data], axis=1)
         
-        # Step 4: Add prefixes to numeric features
-        numeric_data = features.add_prefix(engineered_data)
-        debug_dataframe(numeric_data, "After Adding Prefixes")
-        
-        # Step 5: Combine all features
-        final_data = pd.concat([numeric_data, encoded_data], axis=1)
-        
-        # Step 6: Ensure all required features are present and handle missing/NaN values
+        # Ensure all model features are present
         if hasattr(_current_model, 'feature_names_in_'):
             required_features = set(_current_model.feature_names_in_)
             current_features = set(final_data.columns)
             
-            # Handle missing features
+            # Add missing features with zeros
             missing_features = required_features - current_features
             if missing_features:
-                print(f"Adding missing features: {missing_features}")
-                missing_df = pd.DataFrame(
-                    0,
-                    columns=list(missing_features),
-                    index=final_data.index
-                )
-                final_data = pd.concat([final_data, missing_df], axis=1)
+                print(f"Adding missing features with zeros: {missing_features}")
+                for feature in missing_features:
+                    final_data[feature] = 0
             
-            # Ensure correct column order and no NaN values
+            # Ensure correct column order
             final_data = final_data[_current_model.feature_names_in_]
-            
-            # Check for any remaining NaN values
-            nan_cols = final_data.columns[final_data.isna().any()].tolist()
-            if nan_cols:
-                print(f"Warning: Found NaN values in features: {nan_cols}")
-                print("Filling remaining NaN values with 0")
-                final_data = final_data.fillna(0)            # Step 7: Debug NaN values
-            print("Checking for NaN values before normalization:")
-            nan_cols = final_data.columns[final_data.isna().any()].tolist()
-            if nan_cols:
-                print("NaN found in columns:", nan_cols)
-                print("NaN counts:", final_data[nan_cols].isna().sum())
-            
-            # Fill NaN values with appropriate defaults before normalization
-            numeric_cols = [col for col in final_data.columns if col.startswith('num_')]
-            for col in numeric_cols:
-                if final_data[col].isna().any():
-                    if 'log' in col:
-                        final_data[col] = final_data[col].fillna(0)  # For log features
-                    else:
-                        final_data[col] = final_data[col].fillna(final_data[col].mean() if not final_data[col].empty else 0)
-                
-                # Normalize only if we have valid values
-                if final_data[col].std() != 0:
-                    final_data[col] = (final_data[col] - final_data[col].mean()) / final_data[col].std()
-                    
-            # Final NaN check
-            if final_data.isna().any().any():
-                raise ValueError(f"NaN values found in columns: {final_data.columns[final_data.isna().any()].tolist()}")# Step 8: Make prediction
+        
+        # Make prediction
         prediction = _current_model.predict(final_data)
         
-        # Step 9: Apply market adjustments
+        # Apply market adjustments
         if isinstance(prediction, np.ndarray) and prediction.size == 1:
             prediction = np.exp(prediction[0])
             
-            # Apply all adjustment factors
+            # Apply adjustment factors
             total_adjustment = (
                 adjustment_factors['brand_factor'] *
                 adjustment_factors['mileage_factor'] *
@@ -445,8 +569,8 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
             )
             
             prediction *= total_adjustment
-            
-        return prediction
+        
+        return prediction, warnings
         
     except Exception as e:
         raise ValueError(f"Prediction failed: {str(e)}")

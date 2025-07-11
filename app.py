@@ -105,8 +105,14 @@ def main():
         
         try:
             with st.spinner(" Analyzing features and predicting price..."):
-                predicted_price = predict_price(input_dict)
+                predicted_price, warnings = predict_price(input_dict)
             
+            # Show any warnings
+            if warnings:
+                st.warning("⚠️ Important Notes:")
+                for warning in warnings:
+                    st.warning(f"- {warning}")
+                
             st.success("Prediction Successful!")
             
             # Calculate prices with dynamic markup based on market segment
