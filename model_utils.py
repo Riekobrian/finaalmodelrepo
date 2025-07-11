@@ -65,13 +65,26 @@ class ModelFeatures:
         df = data.copy()
         adjustment_factors = {}
         
-        # Ensure numeric columns have no NaN values
-        numeric_cols = ['car_age', 'mileage_num', 'engine_size_cc_num', 
-                       'horse_power_num', 'torque_num', 'seats_num', 'annual_insurance']
-        for col in numeric_cols:
-            if col in df.columns and df[col].isna().any():
-                print(f"Warning: Found NaN in {col}, filling with 0")
-                df[col] = df[col].fillna(0)
+        # Define default values for numeric columns
+        defaults = {
+            'car_age': 0,
+            'mileage_num': 0,
+            'engine_size_cc_num': 1500,  # Common engine size
+            'horse_power_num': 100,      # Average horsepower
+            'torque_num': 150,           # Average torque
+            'seats_num': 5,              # Standard seating
+            'annual_insurance': 40000    # Average insurance
+        }
+        
+        # Ensure numeric columns have no NaN values using sensible defaults
+        for col, default_value in defaults.items():
+            if col in df.columns:
+                if df[col].isna().any():
+                    print(f"Warning: Found NaN in {col}, filling with {default_value}")
+                    df[col] = df[col].fillna(default_value)
+            else:
+                print(f"Warning: Missing column {col}, adding with default value {default_value}")
+                df[col] = default_value
         
         # Basic numeric transformations with enhanced sensitivity and NaN prevention
         df['car_age_squared'] = df['car_age'] ** 2
@@ -240,8 +253,15 @@ class ModelFeatures:
 
     def add_prefix(self, data: pd.DataFrame) -> pd.DataFrame:
         df = data.copy()
-        renamed = {}
         
+        # First ensure no NaN values in numeric columns
+        for col in self.numeric_features + self.derived_features + ['annual_insurance']:
+            if col in df.columns and df[col].isna().any():
+                print(f"Warning: Found NaN in {col} during prefix addition, filling with 0")
+                df[col] = df[col].fillna(0)
+        
+        # Add prefixes
+        renamed = {}
         for col in df.columns:
             if col in ['annual_insurance']:
                 renamed[col] = f'num_insurance__{col}'
@@ -249,8 +269,18 @@ class ModelFeatures:
                 renamed[col] = f'num_main__{col}'
             elif col in self.categorical_features:
                 renamed[col] = f'cat__{col}'
-                
-        return df.rename(columns=renamed)
+        
+        # Rename and verify no NaN values
+        result = df.rename(columns=renamed)
+        
+        # Final NaN check
+        nan_cols = result.columns[result.isna().any()].tolist()
+        if nan_cols:
+            print("Warning: NaN values found after prefix addition in:", nan_cols)
+            print("Filling remaining NaN values with 0")
+            result = result.fillna(0)
+            
+        return result
 
     def create_one_hot_features(self, data: pd.DataFrame) -> pd.DataFrame:
         one_hot_data = {}
@@ -313,23 +343,28 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
         
         # Step 2: Engineer features and get adjustment factors
         engineered_data, adjustment_factors = features.engineer_features(input_data)
+        debug_dataframe(engineered_data, "After Feature Engineering")
         
         # Step 3: Create one-hot encoded features
         encoded_data = features.create_one_hot_features(engineered_data)
+        debug_dataframe(encoded_data, "After One-Hot Encoding")
         
         # Step 4: Add prefixes to numeric features
         numeric_data = features.add_prefix(engineered_data)
+        debug_dataframe(numeric_data, "After Adding Prefixes")
         
         # Step 5: Combine all features
         final_data = pd.concat([numeric_data, encoded_data], axis=1)
         
-        # Step 6: Ensure all required features are present
+        # Step 6: Ensure all required features are present and handle missing/NaN values
         if hasattr(_current_model, 'feature_names_in_'):
             required_features = set(_current_model.feature_names_in_)
             current_features = set(final_data.columns)
             
+            # Handle missing features
             missing_features = required_features - current_features
             if missing_features:
+                print(f"Adding missing features: {missing_features}")
                 missing_df = pd.DataFrame(
                     0,
                     columns=list(missing_features),
@@ -337,7 +372,15 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
                 )
                 final_data = pd.concat([final_data, missing_df], axis=1)
             
-            final_data = final_data[_current_model.feature_names_in_]            # Step 7: Debug NaN values
+            # Ensure correct column order and no NaN values
+            final_data = final_data[_current_model.feature_names_in_]
+            
+            # Check for any remaining NaN values
+            nan_cols = final_data.columns[final_data.isna().any()].tolist()
+            if nan_cols:
+                print(f"Warning: Found NaN values in features: {nan_cols}")
+                print("Filling remaining NaN values with 0")
+                final_data = final_data.fillna(0)            # Step 7: Debug NaN values
             print("Checking for NaN values before normalization:")
             nan_cols = final_data.columns[final_data.isna().any()].tolist()
             if nan_cols:
@@ -390,3 +433,25 @@ def get_model_info() -> dict:
         "model_type": str(_current_model.__class__.__name__),
         "features": list(_current_model.feature_names_in_) if hasattr(_current_model, 'feature_names_in_') else None
     }
+
+def debug_dataframe(df: pd.DataFrame, stage: str) -> None:
+    """Helper function to debug DataFrame issues"""
+    print(f"\nDebugging DataFrame at stage: {stage}")
+    
+    # Check for NaN values
+    nan_cols = df.columns[df.isna().any()].tolist()
+    if nan_cols:
+        print(f"NaN values found in columns: {nan_cols}")
+        for col in nan_cols:
+            print(f"Column {col}: {df[col].isna().sum()} NaN values")
+    
+    # Check for all-zero columns
+    zero_cols = df.columns[(df == 0).all()].tolist()
+    if zero_cols:
+        print(f"Columns with all zeros: {zero_cols}")
+    
+    # Print basic statistics for numeric columns
+    print("\nNumeric columns summary:")
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols) > 0:
+        print(df[numeric_cols].describe())
