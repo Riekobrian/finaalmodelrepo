@@ -65,13 +65,21 @@ class ModelFeatures:
         df = data.copy()
         adjustment_factors = {}
         
-        # Basic numeric transformations with enhanced sensitivity
+        # Ensure numeric columns have no NaN values
+        numeric_cols = ['car_age', 'mileage_num', 'engine_size_cc_num', 
+                       'horse_power_num', 'torque_num', 'seats_num', 'annual_insurance']
+        for col in numeric_cols:
+            if col in df.columns and df[col].isna().any():
+                print(f"Warning: Found NaN in {col}, filling with 0")
+                df[col] = df[col].fillna(0)
+        
+        # Basic numeric transformations with enhanced sensitivity and NaN prevention
         df['car_age_squared'] = df['car_age'] ** 2
-        df['mileage_log'] = np.log1p(df['mileage_num'])
-        df['mileage_per_year'] = df['mileage_num'] / (df['car_age'] + 1e-6)
-        df['engine_size_cc_log'] = np.log1p(df['engine_size_cc_num'])
-        df['horse_power_log'] = np.log1p(df['horse_power_num'])
-        df['torque_log'] = np.log1p(df['torque_num'])
+        df['mileage_log'] = np.log1p(df['mileage_num'].clip(lower=0))
+        df['mileage_per_year'] = df['mileage_num'] / (df['car_age'].clip(lower=1e-6))
+        df['engine_size_cc_log'] = np.log1p(df['engine_size_cc_num'].clip(lower=0))
+        df['horse_power_log'] = np.log1p(df['horse_power_num'].clip(lower=0))
+        df['torque_log'] = np.log1p(df['torque_num'].clip(lower=0))
         
         # Calculate adjustment factors (stored separately)
         adjustment_factors['mileage_factor'] = 0.95 ** (df['mileage_num'].iloc[0] / 10000)
@@ -91,11 +99,11 @@ class ModelFeatures:
         else:
             adjustment_factors['brand_factor'] = 0.9
         
-        # Enhanced performance metrics (model features)
-        df['power_per_cc'] = df['horse_power_num'] / (df['engine_size_cc_num'] + 1e-6)
-        df['torque_per_cc'] = df['torque_num'] / (df['engine_size_cc_num'] + 1e-6)
-        df['power_to_weight'] = df['horse_power_num'] / (df['engine_size_cc_num'] / 500)
-        df['power_to_torque'] = df['horse_power_num'] / (df['torque_num'] + 1e-6)
+        # Enhanced performance metrics with NaN prevention (model features)
+        df['power_per_cc'] = (df['horse_power_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=2)
+        df['torque_per_cc'] = (df['torque_num'] / df['engine_size_cc_num'].clip(lower=1)).clip(lower=0, upper=10)
+        df['power_to_weight'] = (df['horse_power_num'] / (df['engine_size_cc_num'].clip(lower=1) / 500)).clip(lower=0, upper=100)
+        df['power_to_torque'] = (df['horse_power_num'] / df['torque_num'].clip(lower=1)).clip(lower=0, upper=5)
         
         # Calculate usage factor (as adjustment)
         if df['usage_type_clean'].iloc[0] == 'Foreign Used':
@@ -120,6 +128,29 @@ class ModelFeatures:
     def validate_features(self, data: pd.DataFrame) -> List[str]:
         warnings = []
         errors = []
+        
+        # Check for NaN values first
+        nan_columns = data.columns[data.isna().any()].tolist()
+        if nan_columns:
+            errors.append(f"Missing values found in columns: {', '.join(nan_columns)}")
+            
+        # Ensure all required numeric columns are present and valid
+        required_numeric = {
+            'car_age': (0, 50),
+            'mileage_num': (0, 1000000),
+            'engine_size_cc_num': (600, 8000),
+            'horse_power_num': (30, 1000),
+            'torque_num': (30, 1200),
+            'seats_num': (2, 15)
+        }
+        
+        for col, (min_val, max_val) in required_numeric.items():
+            if col not in data.columns:
+                errors.append(f"Missing required column: {col}")
+            elif data[col].isna().any():
+                errors.append(f"Column {col} contains missing values")
+            elif (data[col] < min_val).any() or (data[col] > max_val).any():
+                errors.append(f"Column {col} contains values outside valid range ({min_val}-{max_val})")
         
         # Age validation with hard limits
         age = data['car_age'].iloc[0]
@@ -306,15 +337,29 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
                 )
                 final_data = pd.concat([final_data, missing_df], axis=1)
             
-            final_data = final_data[_current_model.feature_names_in_]
+            final_data = final_data[_current_model.feature_names_in_]            # Step 7: Debug NaN values
+            print("Checking for NaN values before normalization:")
+            nan_cols = final_data.columns[final_data.isna().any()].tolist()
+            if nan_cols:
+                print("NaN found in columns:", nan_cols)
+                print("NaN counts:", final_data[nan_cols].isna().sum())
             
-        # Step 7: Normalize numeric features
-        numeric_cols = [col for col in final_data.columns if col.startswith('num_')]
-        for col in numeric_cols:
-            if final_data[col].std() != 0:
-                final_data[col] = (final_data[col] - final_data[col].mean()) / final_data[col].std()
-        
-        # Step 8: Make prediction
+            # Fill NaN values with appropriate defaults before normalization
+            numeric_cols = [col for col in final_data.columns if col.startswith('num_')]
+            for col in numeric_cols:
+                if final_data[col].isna().any():
+                    if 'log' in col:
+                        final_data[col] = final_data[col].fillna(0)  # For log features
+                    else:
+                        final_data[col] = final_data[col].fillna(final_data[col].mean() if not final_data[col].empty else 0)
+                
+                # Normalize only if we have valid values
+                if final_data[col].std() != 0:
+                    final_data[col] = (final_data[col] - final_data[col].mean()) / final_data[col].std()
+                    
+            # Final NaN check
+            if final_data.isna().any().any():
+                raise ValueError(f"NaN values found in columns: {final_data.columns[final_data.isna().any()].tolist()}")# Step 8: Make prediction
         prediction = _current_model.predict(final_data)
         
         # Step 9: Apply market adjustments
