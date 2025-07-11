@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="AUTO APPRAISAL", layout="wide")
 
 def main():
-    st.title("🚗 CAR PRICE PREDICTION")
+    st.title("CAR PRICE PREDICTION")
     
     # Load model in background
     with st.spinner("Loading model..."):
@@ -19,7 +19,7 @@ def main():
             st.stop()
 
     # --- Main Area for User Input ---
-    st.header("📝 ENTER CAR FEATURES")
+    st.header("ENTER CAR FEATURES")
 
     # Input form with all required fields, organized in columns
     col1, col2, col3 = st.columns(3)
@@ -76,7 +76,7 @@ def main():
         st.session_state['previous_input'] = None
         
     # --- Prediction Trigger and Display ---
-    if st.button("🔍 Predict Price", type="primary", use_container_width=True):
+    if st.button("Predict Price", type="primary", use_container_width=True):
         
         # Create the raw input dictionary for the prediction pipeline
         input_dict = {
@@ -101,10 +101,10 @@ def main():
             with st.spinner("⌛ Analyzing features and predicting price..."):
                 predicted_price = predict_price(input_dict)
             
-            st.success("✅ Prediction Successful!")
+            st.success("Prediction Successful!")
             
             # Display prediction with formatting
-            st.metric("💰 Predicted Market Price", f"KES {predicted_price:,.0f}")
+            st.metric("Predicted Market Price", f"KES {predicted_price:,.0f}")
             
             # Compare with previous prediction if available
             if st.session_state['previous_input'] is not None:
@@ -115,7 +115,7 @@ def main():
                 )
                 
                 if impact:
-                    st.subheader("📊 What Changed?")
+                    st.subheader("What Changed?")
                     price_change = new_price - old_price
                     percent_change = (price_change / old_price) * 100
                     
@@ -134,7 +134,7 @@ def main():
                         st.markdown(format_impact(impact))
             
             # Analyze sensitivity for numeric features
-            st.subheader("📈 FEATURE SENSITIVITY ANALYSIS")
+            st.subheader("FEATURE SENSITIVITY ANALYSIS")
             numeric_features = ['car_age', 'mileage_num', 'engine_size_cc_num', 'horse_power_num']
             
             for feature in numeric_features:
@@ -160,16 +160,16 @@ def main():
             
             # Show a confidence range for context
             st.info(f"""
-            **📋 Estimated Price Range:**
-            - 🔻 Conservative: KES {predicted_price * 0.9:,.0f}
-            - ⭐ Most Likely: KES {predicted_price:,.0f}
-            - 🔺 Optimistic: KES {predicted_price * 1.1:,.0f}
+            **Estimated Price Range:**
+            - Conservative: KES {predicted_price * 0.9:,.0f}
+            - Most Likely: KES {predicted_price:,.0f}
+            - Optimistic: KES {predicted_price * 1.1:,.0f}
             
             *This range is an estimate and not a guarantee.*
             """)
 
         except Exception as e:
-            st.error(f"❌ An error occurred during prediction: {str(e)}")
+            st.error(f"An error occurred during prediction: {str(e)}")
             st.error("Please ensure all input values are reasonable and try again.")
 
 if __name__ == "__main__":
