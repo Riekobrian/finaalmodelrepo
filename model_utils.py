@@ -68,6 +68,10 @@ class ModelFeatures:
         df['horse_power_log'] = np.log1p(df['horse_power_num'])
         df['torque_log'] = np.log1p(df['torque_num'])
         
+        # Calculate core adjustment factors
+        df['mileage_factor'] = 0.95 ** (df['mileage_num'] / 10000)
+        df['age_factor'] = 0.90 ** df['car_age']
+        
         # Market segment indicators and brand factors
         luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
         premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
@@ -294,37 +298,43 @@ def predict_price(input_data: Union[Dict, pd.DataFrame]) -> float:
             
             final_data = final_data[_current_model.feature_names_in_]
         
-        # Step 7: Normalize numeric features
+        # Step 7: Calculate market factors
+        make = input_data['make_name_cleaned'].iloc[0].lower()
+        mileage = input_data['mileage_num'].iloc[0]
+        age = input_data['car_age'].iloc[0]
+        
+        # Pre-calculate adjustment factors
+        final_data['mileage_factor'] = 0.95 ** (mileage / 10000)
+        final_data['age_factor'] = 0.90 ** age
+        
+        luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
+        premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
+        
+        # Calculate brand factor
+        if make in luxury_makes:
+            final_data['brand_factor'] = 1.15
+        elif make in premium_makes:
+            final_data['brand_factor'] = 1.10
+        else:
+            final_data['brand_factor'] = 1.05
+            
+        # Step 8: Normalize numeric features
         numeric_cols = [col for col in final_data.columns if col.startswith('num_')]
         for col in numeric_cols:
             if final_data[col].std() != 0:
                 final_data[col] = (final_data[col] - final_data[col].mean()) / final_data[col].std()
         
-        # Step 8: Make prediction
+        # Step 9: Make prediction
         prediction = _current_model.predict(final_data)
         
-        # Step 9: Apply market adjustments
+        # Step 10: Apply market adjustments
         if isinstance(prediction, np.ndarray) and prediction.size == 1:
             prediction = np.exp(prediction[0])
             
-            # Apply market segment adjustments
-            make = input_data['make_name_cleaned'].iloc[0].lower()
-            mileage = input_data['mileage_num'].iloc[0]
-            age = input_data['car_age'].iloc[0]
-            
-            # Calculate final adjustments
-            mileage_factor = 0.95 ** (mileage / 10000)
-            age_factor = 0.90 ** age
-            
-            luxury_makes = ['bmw', 'mercedes', 'audi', 'lexus', 'porsche', 'land rover', 'jaguar']
-            premium_makes = ['toyota', 'honda', 'volkswagen', 'mazda', 'subaru']
-            
-            if make in luxury_makes:
-                prediction *= 1.15 * mileage_factor * age_factor
-            elif make in premium_makes:
-                prediction *= 1.10 * mileage_factor * age_factor
-            else:
-                prediction *= 1.05 * mileage_factor * age_factor
+            # Apply combined market adjustments
+            prediction *= (final_data['brand_factor'].iloc[0] * 
+                         final_data['mileage_factor'].iloc[0] * 
+                         final_data['age_factor'].iloc[0])
             
         return prediction
         
