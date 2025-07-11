@@ -33,7 +33,8 @@ venv/
 ENV/
 
 # Downloaded model artifacts
-model_artifacts/
+model_artifacts/*
+!model_artifacts/.gitkeep
 
 # Logs
 logs/
